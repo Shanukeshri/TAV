@@ -71,6 +71,9 @@ fun countTotalNodes(node: NormalizedNode): Int {
 /** View mode for the mirror */
 enum class MirrorViewMode { Screenshot, Tree }
 
+/** Top-level screen navigation */
+enum class AppScreen { Mirror, Apps }
+
 @Composable
 fun MirrorApp() {
     val isServiceRunning by MirrorAccessibilityService.isServiceRunning.collectAsState()
@@ -78,6 +81,10 @@ fun MirrorApp() {
     val screenshot by UiMirrorRepository.screenshotFlow.collectAsState()
     var viewMode by remember { mutableStateOf(MirrorViewMode.Screenshot) }
     var showOverlay by remember { mutableStateOf(true) }
+    var currentScreen by remember { mutableStateOf(AppScreen.Mirror) }
+
+    // Observe text input requests (from editable field taps in screenshot mode)
+    val textInputRequest by MirrorInteractionController.textInputRequest.collectAsState()
 
     Box(
         modifier = Modifier
@@ -86,6 +93,7 @@ fun MirrorApp() {
     ) {
         Column(modifier = Modifier.fillMaxSize().systemBarsPadding()) {
             MirrorHeader(isServiceRunning, snapshot, viewMode, showOverlay,
+                currentScreen = currentScreen,
                 onViewModeToggle = {
                     viewMode = if (viewMode == MirrorViewMode.Screenshot) MirrorViewMode.Tree
                     else MirrorViewMode.Screenshot
@@ -93,12 +101,181 @@ fun MirrorApp() {
                 onOverlayToggle = { showOverlay = !showOverlay }
             )
 
-            when {
-                !isServiceRunning -> ServiceSetupScreen()
-                snapshot == null -> WaitingScreen()
-                else -> MirrorScreen(snapshot!!, screenshot, viewMode, showOverlay)
+            // Main content area
+            Box(modifier = Modifier.weight(1f)) {
+                when (currentScreen) {
+                    AppScreen.Mirror -> {
+                        when {
+                            !isServiceRunning -> ServiceSetupScreen()
+                            snapshot == null -> WaitingScreen()
+                            else -> MirrorScreen(snapshot!!, screenshot, viewMode, showOverlay)
+                        }
+                    }
+                    AppScreen.Apps -> {
+                        AppLauncherScreen()
+                    }
+                }
+            }
+
+            // Bottom navigation bar
+            BottomNavBar(
+                currentScreen = currentScreen,
+                onScreenChange = { currentScreen = it }
+            )
+        }
+
+        // Text input dialog overlay (shown when user taps an editable field)
+        textInputRequest?.let { request ->
+            MirrorTextInputDialog(
+                request = request,
+                onSubmit = { text ->
+                    MirrorInteractionController.requestSetText(request.nodeId, text)
+                    MirrorInteractionController.clearTextInputRequest()
+                },
+                onDismiss = {
+                    MirrorInteractionController.clearTextInputRequest()
+                }
+            )
+        }
+    }
+}
+
+/**
+ * A floating text input dialog that appears when the user taps an editable field
+ * in the mirrored app. This lets the user type within Mirror UI and pushes
+ * the text to the real app via ACTION_SET_TEXT without switching apps.
+ */
+@Composable
+fun MirrorTextInputDialog(
+    request: TextInputRequest,
+    onSubmit: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var inputText by remember(request.nodeId) { mutableStateOf(request.currentText) }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.6f))
+            .clickable { onDismiss() },
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth(0.9f)
+                .clip(RoundedCornerShape(16.dp))
+                .background(CardBg)
+                .border(1.dp, AccentPurple.copy(alpha = 0.4f), RoundedCornerShape(16.dp))
+                .clickable { /* absorb clicks so they don't dismiss */ }
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text("✏️ Enter Text", color = TextPrimary, fontSize = 18.sp,
+                fontWeight = FontWeight.Bold)
+
+            if (request.hint.isNotEmpty()) {
+                Text("Hint: ${request.hint}", color = TextMuted, fontSize = 12.sp)
+            }
+
+            OutlinedTextField(
+                value = inputText,
+                onValueChange = { inputText = it },
+                modifier = Modifier.fillMaxWidth(),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = TextPrimary,
+                    unfocusedTextColor = TextPrimary,
+                    focusedBorderColor = AccentPurple,
+                    unfocusedBorderColor = CardBorder,
+                    cursorColor = AccentPurple,
+                    focusedContainerColor = Color(0xFF1E1E30),
+                    unfocusedContainerColor = Color(0xFF1E1E30)
+                ),
+                placeholder = {
+                    Text(request.hint.ifEmpty { "Type here…" },
+                        color = TextMuted, fontSize = 14.sp)
+                },
+                shape = RoundedCornerShape(10.dp),
+                singleLine = false,
+                maxLines = 4
+            )
+
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                // Cancel
+                Box(
+                    modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp))
+                        .background(CardBorder)
+                        .clickable { onDismiss() }
+                        .padding(vertical = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("Cancel", color = TextSecondary, fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium)
+                }
+
+                // Send
+                Box(
+                    modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp))
+                        .background(Brush.horizontalGradient(listOf(AccentPurple, AccentBlue)))
+                        .clickable { onSubmit(inputText) }
+                        .padding(vertical = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("Send ✓", color = Color.White, fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold)
+                }
             }
         }
+    }
+}
+
+@Composable
+fun BottomNavBar(currentScreen: AppScreen, onScreenChange: (AppScreen) -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(CardBg)
+            .border(width = 1.dp, color = CardBorder)
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        BottomNavItem(
+            icon = "🔮",
+            label = "Mirror",
+            isSelected = currentScreen == AppScreen.Mirror,
+            onClick = { onScreenChange(AppScreen.Mirror) }
+        )
+        BottomNavItem(
+            icon = "📱",
+            label = "Apps",
+            isSelected = currentScreen == AppScreen.Apps,
+            onClick = { onScreenChange(AppScreen.Apps) }
+        )
+    }
+}
+
+@Composable
+fun BottomNavItem(icon: String, label: String, isSelected: Boolean, onClick: () -> Unit) {
+    val bgColor = if (isSelected) AccentPurple.copy(alpha = 0.15f) else Color.Transparent
+    val textColor = if (isSelected) AccentPurple else TextMuted
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(bgColor)
+            .clickable { onClick() }
+            .padding(horizontal = 24.dp, vertical = 6.dp)
+    ) {
+        Text(icon, fontSize = 20.sp)
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            label, color = textColor, fontSize = 11.sp,
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+        )
     }
 }
 
@@ -112,6 +289,7 @@ fun MirrorHeader(
     snapshot: UiSnapshot?,
     viewMode: MirrorViewMode,
     showOverlay: Boolean,
+    currentScreen: AppScreen = AppScreen.Mirror,
     onViewModeToggle: () -> Unit,
     onOverlayToggle: () -> Unit
 ) {
@@ -133,8 +311,8 @@ fun MirrorHeader(
             StatusPill(isServiceActive)
         }
 
-        // View mode controls — only show when mirroring is active
-        if (isServiceActive && snapshot != null) {
+        // View mode controls — only show when mirroring is active and on Mirror tab
+        if (isServiceActive && snapshot != null && currentScreen == AppScreen.Mirror) {
             Spacer(modifier = Modifier.height(8.dp))
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),

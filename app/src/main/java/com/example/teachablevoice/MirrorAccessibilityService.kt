@@ -81,7 +81,21 @@ class MirrorAccessibilityService : AccessibilityService() {
         if (targetNode != null) {
             val realNode = AccessibilityNodeRegistry.getNode(targetNode.id)
             if (realNode != null && realNode.isEnabled) {
-                // Try click action first
+                // If the node is editable (text field), show a text input dialog
+                // instead of clicking (which would bring the other app to the foreground)
+                if (targetNode.editable || realNode.isEditable) {
+                    val currentText = targetNode.text.ifEmpty { realNode.text?.toString() ?: "" }
+                    val hint = targetNode.hint.ifEmpty {
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                            realNode.hintText?.toString() ?: ""
+                        } else ""
+                    }
+                    MirrorInteractionController.requestTextInput(targetNode.id, currentText, hint)
+                    Log.d(TAG_INTERACTION, "CoordinateTap editable node=${targetNode.id}, showing text input dialog")
+                    return
+                }
+
+                // Try click action for non-editable nodes
                 val hasClick = realNode.actionList?.any { it.id == AccessibilityNodeInfo.ACTION_CLICK } == true
                 if (hasClick) {
                     val result = try {
@@ -286,7 +300,7 @@ class MirrorAccessibilityService : AccessibilityService() {
         if (currentSnapshot == null || isIgnoredPackage(currentSnapshot.packageName)) return
 
         val node = AccessibilityNodeRegistry.getNode(nodeId) ?: return
-        try { node.performAction(AccessibilityNodeInfo.ACTION_FOCUS) } catch (_: Exception) {}
+        // NOTE: Do NOT call ACTION_FOCUS — it brings the other app to the foreground
 
         val args = Bundle().apply {
             putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)

@@ -1,8 +1,22 @@
 package com.example.teachablevoice
 
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+
+/**
+ * Represents a request to show a text input dialog for an editable node.
+ * This is emitted when the user taps an editable field in screenshot mode,
+ * so we can handle text input in the Mirror UI without switching to the real app.
+ */
+data class TextInputRequest(
+    val nodeId: String,
+    val currentText: String,
+    val hint: String
+)
 
 /**
  * Sealed class representing all possible interaction commands
@@ -39,6 +53,10 @@ object MirrorInteractionController {
     private val _commands = MutableSharedFlow<InteractionCommand>(extraBufferCapacity = 20)
     val commands: SharedFlow<InteractionCommand> = _commands.asSharedFlow()
 
+    /** Flow for text input requests — UI observes this to show an input dialog */
+    private val _textInputRequest = MutableStateFlow<TextInputRequest?>(null)
+    val textInputRequest: StateFlow<TextInputRequest?> = _textInputRequest.asStateFlow()
+
     fun requestClick(nodeId: String) {
         _clickRequests.tryEmit(nodeId)
         _commands.tryEmit(InteractionCommand.Click(nodeId))
@@ -70,6 +88,16 @@ object MirrorInteractionController {
 
     fun requestCoordinateLongPress(screenX: Float, screenY: Float) {
         _commands.tryEmit(InteractionCommand.CoordinateLongPress(screenX, screenY))
+    }
+
+    /** Request a text input dialog for an editable node */
+    fun requestTextInput(nodeId: String, currentText: String, hint: String) {
+        _textInputRequest.value = TextInputRequest(nodeId, currentText, hint)
+    }
+
+    /** Clear the text input request after it's been handled */
+    fun clearTextInputRequest() {
+        _textInputRequest.value = null
     }
 
     fun requestCoordinateSwipe(

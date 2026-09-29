@@ -54,6 +54,7 @@ private val NodeCardBg = Color(0xFF1C1C30)
 private val NodeScrollableBg = Color(0xFF16162A)
 private val NodeBorderDefault = Color(0xFF2E2E4A)
 private val AccentGlow = Color(0xFF7C4DFF)
+private val TextMuted = Color(0xFF606080)
 
 // Overlay colors for screenshot mode
 private val OverlayClickable = Color(0x336C63FF)
@@ -512,21 +513,132 @@ fun MirrorDropdownNode(node: NormalizedNode, onNodeClicked: (String) -> Unit) {
 
 @Composable
 fun MirrorScrollableNode(node: NormalizedNode) {
-    Row(verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(NodeScrollableBg)
-            .border(1.dp, AccentGlow.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
-            .padding(horizontal = 12.dp, vertical = 8.dp)) {
-        Text("↕", color = AccentGlow, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-        Spacer(modifier = Modifier.width(8.dp))
-        Column {
-            Text(if (node.type == NodeType.List) "Scrollable List" else "Scrollable Area",
-                color = NodeTextColor.copy(alpha = 0.7f), fontSize = 12.sp, fontWeight = FontWeight.Medium)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp)) {
-                SmallActionChip("▲ Up") { MirrorInteractionController.requestScrollBackward(node.id) }
-                SmallActionChip("▼ Down") { MirrorInteractionController.requestScrollForward(node.id) }
-            }
+    // Gather summary info about children
+    val childCount = node.children.size
+    val itemSummaries = remember(node.id) {
+        collectScrollableChildSummaries(node, maxItems = 5)
+    }
+    val classHint = remember(node.className) {
+        when {
+            node.className.contains("RecyclerView") -> "RecyclerView"
+            node.className.contains("ListView") -> "ListView"
+            node.className.contains("GridView") -> "GridView"
+            node.className.contains("ScrollView") -> "ScrollView"
+            node.className.contains("ViewPager") -> "ViewPager"
+            else -> ""
         }
     }
+
+    Column(
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(NodeScrollableBg)
+            .border(1.dp, AccentGlow.copy(alpha = 0.25f), RoundedCornerShape(10.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+    ) {
+        // Header row
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("↕", color = AccentGlow, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.width(8.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        if (node.type == NodeType.List) "Scrollable List" else "Scrollable Area",
+                        color = NodeTextColor.copy(alpha = 0.85f), fontSize = 13.sp, fontWeight = FontWeight.SemiBold
+                    )
+                    if (classHint.isNotEmpty()) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            "($classHint)",
+                            color = AccentGlow.copy(alpha = 0.5f), fontSize = 10.sp
+                        )
+                    }
+                }
+                Text(
+                    "$childCount items visible",
+                    color = TextMuted, fontSize = 11.sp
+                )
+            }
+        }
+
+        // Item previews
+        if (itemSummaries.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(6.dp))
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(Color(0xFF111122))
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                itemSummaries.forEachIndexed { index, summary ->
+                    Row(verticalAlignment = Alignment.Top) {
+                        Text(
+                            "${index + 1}.",
+                            color = AccentGlow.copy(alpha = 0.5f), fontSize = 11.sp,
+                            modifier = Modifier.width(18.dp)
+                        )
+                        Text(
+                            summary,
+                            color = NodeTextColor.copy(alpha = 0.75f), fontSize = 11.sp,
+                            maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 15.sp
+                        )
+                    }
+                }
+                if (childCount > 5) {
+                    Text(
+                        "… and ${childCount - 5} more items",
+                        color = TextMuted, fontSize = 10.sp,
+                        modifier = Modifier.padding(start = 18.dp)
+                    )
+                }
+            }
+        }
+
+        // Scroll buttons
+        Spacer(modifier = Modifier.height(6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SmallActionChip("▲ Up") { MirrorInteractionController.requestScrollBackward(node.id) }
+            SmallActionChip("▼ Down") { MirrorInteractionController.requestScrollForward(node.id) }
+        }
+    }
+}
+
+/**
+ * Collects summary text for each direct child of a scrollable container.
+ * For each child, it gathers all text content recursively to build a meaningful description.
+ */
+private fun collectScrollableChildSummaries(node: NormalizedNode, maxItems: Int = 5): List<String> {
+    val summaries = mutableListOf<String>()
+    for (child in node.children) {
+        if (summaries.size >= maxItems) break
+        val texts = mutableListOf<String>()
+        fun gatherTexts(n: NormalizedNode, depth: Int) {
+            if (depth > 4) return
+            val t = n.text.trim()
+            val d = n.contentDescription.trim()
+            if (t.isNotEmpty() && t !in texts) texts.add(t)
+            else if (d.isNotEmpty() && d !in texts) texts.add(d)
+            for (c in n.children) {
+                if (texts.size >= 6) break
+                gatherTexts(c, depth + 1)
+            }
+        }
+        gatherTexts(child, 0)
+        val summary = texts.take(4).joinToString(" · ")
+        if (summary.isNotEmpty()) {
+            summaries.add(summary)
+        } else {
+            // Even without text, show the type info
+            val typeHint = when {
+                child.clickable -> "Tappable item"
+                child.type == NodeType.Image -> "Image"
+                child.children.isNotEmpty() -> "Container (${child.children.size} elements)"
+                else -> null
+            }
+            if (typeHint != null) summaries.add(typeHint)
+        }
+    }
+    return summaries
 }
 
 @Composable
