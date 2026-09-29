@@ -1,4 +1,4 @@
 <resources>
-    <string name="app_name">TeachableVoiceAutomation</string>
-    <string name="accessibility_service_description">Teachable Voice Automation Accessibility Service</string>
+    <string name="app_name">Mirror UI</string>
+    <string name="accessibility_service_description">Mirror UI Extractor — reads and mirrors third-party app interfaces, allowing you to view and interact with them remotely from within this app.</string>
 </resources>

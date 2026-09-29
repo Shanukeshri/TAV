@@ -48,6 +48,8 @@ class UIExtractor {
         
         val text = node.text?.toString() ?: ""
         val contentDescription = node.contentDescription?.toString() ?: ""
+        val className = node.className?.toString() ?: ""
+        val resourceId = node.viewIdResourceName?.toString() ?: ""
         
         // Extract hint gracefully handling API level differences
         val hint = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
@@ -66,6 +68,7 @@ class UIExtractor {
                 AccessibilityNodeInfo.ACTION_LONG_CLICK -> "ACTION_LONG_CLICK"
                 AccessibilityNodeInfo.ACTION_SCROLL_FORWARD -> "ACTION_SCROLL_FORWARD"
                 AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD -> "ACTION_SCROLL_BACKWARD"
+                AccessibilityNodeInfo.ACTION_SET_TEXT -> "ACTION_SET_TEXT"
                 else -> action.label?.toString() ?: action.id.toString()
             }
         } ?: emptyList()
@@ -99,6 +102,8 @@ class UIExtractor {
             text = text,
             contentDescription = contentDescription,
             hint = hint,
+            className = className,
+            resourceId = resourceId,
             bounds = bounds,
             enabled = node.isEnabled,
             clickable = node.isClickable,
@@ -107,6 +112,7 @@ class UIExtractor {
             scrollable = node.isScrollable,
             checked = node.isChecked,
             selected = node.isSelected,
+            longClickable = node.isLongClickable,
             actions = actions,
             children = children
         )

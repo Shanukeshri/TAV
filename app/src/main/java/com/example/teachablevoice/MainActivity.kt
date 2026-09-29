@@ -1,19 +1,52 @@
 package com.example.teachablevoice
 
+import android.content.Intent
+import android.graphics.Bitmap
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import com.example.teachablevoice.ui.theme.TeachableVoiceAutomationTheme
+
+// ──────────────────────────────────────────────
+// Color Palette
+// ──────────────────────────────────────────────
+private val BgGradientTop = Color(0xFF0A0A14)
+private val BgGradientBottom = Color(0xFF12121F)
+private val AccentPurple = Color(0xFF7C4DFF)
+private val AccentBlue = Color(0xFF448AFF)
+private val AccentCyan = Color(0xFF18FFFF)
+private val CardBg = Color(0xFF16162A)
+private val CardBorder = Color(0xFF2A2A45)
+private val TextPrimary = Color(0xFFF0F0FF)
+private val TextSecondary = Color(0xFFA0A0C0)
+private val TextMuted = Color(0xFF606080)
+private val SuccessGreen = Color(0xFF66BB6A)
+private val ErrorRed = Color(0xFFEF5350)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -21,77 +54,366 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             TeachableVoiceAutomationTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    MirrorScreen(modifier = Modifier.padding(innerPadding))
+                Surface(modifier = Modifier.fillMaxSize(), color = BgGradientTop) {
+                    MirrorApp()
                 }
             }
         }
     }
 }
 
-// Utility to recursively count the exact number of nodes captured by the UIExtractor
 fun countTotalNodes(node: NormalizedNode): Int {
     var count = 1
-    for (child in node.children) {
-        count += countTotalNodes(child)
-    }
+    for (child in node.children) count += countTotalNodes(child)
     return count
 }
 
+/** View mode for the mirror */
+enum class MirrorViewMode { Screenshot, Tree }
+
 @Composable
-fun MirrorScreen(modifier: Modifier = Modifier) {
+fun MirrorApp() {
+    val isServiceRunning by MirrorAccessibilityService.isServiceRunning.collectAsState()
     val snapshot by UiMirrorRepository.snapshotFlow.collectAsState()
+    val screenshot by UiMirrorRepository.screenshotFlow.collectAsState()
+    var viewMode by remember { mutableStateOf(MirrorViewMode.Screenshot) }
+    var showOverlay by remember { mutableStateOf(true) }
 
-    Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
-        if (snapshot == null) {
-            Text(
-                text = "Waiting for a third-party app...",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(bottom = 8.dp)
-            )
-            Text(
-                text = "Open Chrome or another supported app to capture its UI."
-            )
-        } else {
-            val s = snapshot!!
-            val date = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(s.timestamp))
-            val totalCaptured = remember(s.rootNode) { countTotalNodes(s.rootNode) }
-            var renderedNodesCount by remember { mutableStateOf(0) }
-
-            Text(
-                text = "Mirroring: ${s.packageName}",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                text = "Last captured: $date",
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(bottom = 4.dp)
-            )
-            
-            // Helpful telemetry to monitor our performance limits
-            Text(
-                text = "Captured nodes: $totalCaptured",
-                style = MaterialTheme.typography.bodySmall
-            )
-            Text(
-                text = "Rendered nodes: $renderedNodesCount",
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(bottom = 8.dp)
-            )
-            
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-            
-            MirrorRenderer(
-                rootNode = s.rootNode,
-                onRenderCount = { count ->
-                    renderedNodesCount = count
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Brush.verticalGradient(listOf(BgGradientTop, BgGradientBottom)))
+    ) {
+        Column(modifier = Modifier.fillMaxSize().systemBarsPadding()) {
+            MirrorHeader(isServiceRunning, snapshot, viewMode, showOverlay,
+                onViewModeToggle = {
+                    viewMode = if (viewMode == MirrorViewMode.Screenshot) MirrorViewMode.Tree
+                    else MirrorViewMode.Screenshot
                 },
-                onNodeClicked = { nodeId ->
-                    MirrorInteractionController.requestClick(nodeId)
-                }
+                onOverlayToggle = { showOverlay = !showOverlay }
             )
+
+            when {
+                !isServiceRunning -> ServiceSetupScreen()
+                snapshot == null -> WaitingScreen()
+                else -> MirrorScreen(snapshot!!, screenshot, viewMode, showOverlay)
+            }
         }
+    }
+}
+
+// ──────────────────────────────────────────────
+// Header Bar
+// ──────────────────────────────────────────────
+
+@Composable
+fun MirrorHeader(
+    isServiceActive: Boolean,
+    snapshot: UiSnapshot?,
+    viewMode: MirrorViewMode,
+    showOverlay: Boolean,
+    onViewModeToggle: () -> Unit,
+    onOverlayToggle: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(CardBg.copy(alpha = 0.6f))
+            .padding(horizontal = 16.dp, vertical = 10.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Mirror UI", color = TextPrimary, fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
+                if (snapshot != null) {
+                    Text(snapshot.packageName, color = AccentCyan, fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            StatusPill(isServiceActive)
+        }
+
+        // View mode controls — only show when mirroring is active
+        if (isServiceActive && snapshot != null) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Screenshot / Tree toggle
+                ModeChip(
+                    text = "📸 Screenshot",
+                    isActive = viewMode == MirrorViewMode.Screenshot,
+                    onClick = { if (viewMode != MirrorViewMode.Screenshot) onViewModeToggle() }
+                )
+                ModeChip(
+                    text = "🌳 Tree",
+                    isActive = viewMode == MirrorViewMode.Tree,
+                    onClick = { if (viewMode != MirrorViewMode.Tree) onViewModeToggle() }
+                )
+
+                Spacer(modifier = Modifier.weight(1f))
+
+                // Overlay toggle (only in screenshot mode)
+                if (viewMode == MirrorViewMode.Screenshot) {
+                    ModeChip(
+                        text = if (showOverlay) "🔍 Overlay ON" else "🔍 Overlay OFF",
+                        isActive = showOverlay,
+                        onClick = onOverlayToggle
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ModeChip(text: String, isActive: Boolean, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (isActive) AccentPurple.copy(alpha = 0.25f) else CardBg)
+            .border(
+                1.dp,
+                if (isActive) AccentPurple.copy(alpha = 0.6f) else CardBorder,
+                RoundedCornerShape(8.dp)
+            )
+            .clickable { onClick() }
+            .padding(horizontal = 10.dp, vertical = 5.dp)
+    ) {
+        Text(text, color = if (isActive) TextPrimary else TextMuted,
+            fontSize = 11.sp, fontWeight = FontWeight.Medium)
+    }
+}
+
+@Composable
+fun StatusPill(isActive: Boolean) {
+    val dotColor = if (isActive) SuccessGreen else ErrorRed
+    val label = if (isActive) "Active" else "Inactive"
+    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+    val pulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.4f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1000, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ), label = "pulse_alpha"
+    )
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.clip(RoundedCornerShape(20.dp)).background(CardBg)
+            .border(1.dp, CardBorder, RoundedCornerShape(20.dp))
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+    ) {
+        Box(modifier = Modifier.size(8.dp).clip(CircleShape)
+            .background(if (isActive) dotColor.copy(alpha = pulseAlpha) else dotColor))
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(label, color = if (isActive) SuccessGreen else ErrorRed,
+            fontSize = 12.sp, fontWeight = FontWeight.Medium)
+    }
+}
+
+// ──────────────────────────────────────────────
+// Service Setup Screen
+// ──────────────────────────────────────────────
+
+@Composable
+fun ServiceSetupScreen() {
+    val context = LocalContext.current
+    Column(
+        modifier = Modifier.fillMaxSize().padding(24.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        val infiniteTransition = rememberInfiniteTransition(label = "float")
+        val offsetY by infiniteTransition.animateFloat(
+            initialValue = -8f, targetValue = 8f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(2000, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse
+            ), label = "float_y"
+        )
+        Text("🔮", fontSize = 64.sp, modifier = Modifier.offset(y = offsetY.dp))
+        Spacer(modifier = Modifier.height(24.dp))
+        Text("Enable Accessibility Service", color = TextPrimary, fontSize = 22.sp,
+            fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+        Spacer(modifier = Modifier.height(12.dp))
+        Text("Mirror UI needs accessibility access to read and interact with other apps.",
+            color = TextSecondary, fontSize = 14.sp, textAlign = TextAlign.Center,
+            lineHeight = 22.sp, modifier = Modifier.padding(horizontal = 16.dp))
+        Spacer(modifier = Modifier.height(32.dp))
+
+        SetupStepCard("1", "Open Accessibility Settings", "Tap the button below")
+        Spacer(modifier = Modifier.height(8.dp))
+        SetupStepCard("2", "Find \"Mirror UI\"", "Under Downloaded/Installed services")
+        Spacer(modifier = Modifier.height(8.dp))
+        SetupStepCard("3", "Toggle it ON", "Confirm the permission dialog")
+        Spacer(modifier = Modifier.height(32.dp))
+
+        Box(
+            modifier = Modifier.fillMaxWidth().height(52.dp)
+                .shadow(8.dp, RoundedCornerShape(14.dp))
+                .clip(RoundedCornerShape(14.dp))
+                .background(Brush.horizontalGradient(listOf(AccentPurple, AccentBlue)))
+                .clickable {
+                    context.startActivity(
+                        Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Text("Open Accessibility Settings", color = Color.White,
+                fontWeight = FontWeight.Bold, fontSize = 15.sp)
+        }
+    }
+}
+
+@Composable
+fun SetupStepCard(stepNumber: String, title: String, description: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(CardBg)
+            .border(1.dp, CardBorder, RoundedCornerShape(12.dp)).padding(14.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        Box(modifier = Modifier.size(28.dp).clip(CircleShape).background(AccentPurple),
+            contentAlignment = Alignment.Center) {
+            Text(stepNumber, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        Column {
+            Text(title, color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Text(description, color = TextMuted, fontSize = 12.sp, lineHeight = 16.sp)
+        }
+    }
+}
+
+// ──────────────────────────────────────────────
+// Waiting Screen
+// ──────────────────────────────────────────────
+
+@Composable
+fun WaitingScreen() {
+    Column(
+        modifier = Modifier.fillMaxSize().padding(24.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text("📱", fontSize = 56.sp)
+        Spacer(modifier = Modifier.height(24.dp))
+        Text("Waiting for a third-party app…", color = TextPrimary, fontSize = 18.sp,
+            fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+        Spacer(modifier = Modifier.height(12.dp))
+        Text("Switch to another app to capture and mirror its UI here.",
+            color = TextSecondary, fontSize = 14.sp, textAlign = TextAlign.Center,
+            lineHeight = 22.sp, modifier = Modifier.padding(horizontal = 24.dp))
+        Spacer(modifier = Modifier.height(32.dp))
+        LinearProgressIndicator(
+            modifier = Modifier.fillMaxWidth(0.6f).height(3.dp).clip(RoundedCornerShape(2.dp)),
+            color = AccentPurple, trackColor = CardBorder)
+        Spacer(modifier = Modifier.height(40.dp))
+
+        Column(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(CardBg)
+            .border(1.dp, CardBorder, RoundedCornerShape(12.dp)).padding(16.dp)) {
+            Text("💡 Tips", color = AccentCyan, fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(bottom = 8.dp))
+            TipItem("Open any app to start mirroring")
+            TipItem("Screenshot mode shows the exact UI with tap forwarding")
+            TipItem("Tree mode shows structured elements with rich controls")
+            TipItem("Toggle the overlay to see interactive zones")
+        }
+    }
+}
+
+@Composable
+fun TipItem(text: String) {
+    Row(modifier = Modifier.padding(vertical = 3.dp), verticalAlignment = Alignment.Top) {
+        Text("•", color = AccentPurple, fontSize = 12.sp, modifier = Modifier.padding(end = 8.dp, top = 1.dp))
+        Text(text, color = TextSecondary, fontSize = 12.sp, lineHeight = 18.sp)
+    }
+}
+
+// ──────────────────────────────────────────────
+// Mirror Screen (actively mirroring)
+// ──────────────────────────────────────────────
+
+@Composable
+fun MirrorScreen(
+    snapshot: UiSnapshot,
+    screenshot: Bitmap?,
+    viewMode: MirrorViewMode,
+    showOverlay: Boolean
+) {
+    val date = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(snapshot.timestamp))
+    val totalCaptured = remember(snapshot.rootNode) { countTotalNodes(snapshot.rootNode) }
+    var renderedNodesCount by remember { mutableStateOf(0) }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        // Info bar
+        Row(
+            modifier = Modifier.fillMaxWidth().background(CardBg.copy(alpha = 0.4f))
+                .padding(horizontal = 16.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text("🕐 $date", color = TextMuted, fontSize = 11.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                StatChip("Nodes", "$totalCaptured", AccentBlue)
+                if (viewMode == MirrorViewMode.Tree) {
+                    StatChip("Shown", "$renderedNodesCount", AccentPurple)
+                }
+                if (screenshot != null) {
+                    StatChip("📸", "${screenshot.width}×${screenshot.height}", AccentCyan)
+                }
+            }
+        }
+
+        // Mirror content
+        when (viewMode) {
+            MirrorViewMode.Screenshot -> {
+                if (screenshot != null && !screenshot.isRecycled) {
+                    ScreenshotMirrorView(
+                        screenshot = screenshot,
+                        rootNode = snapshot.rootNode,
+                        showOverlay = showOverlay
+                    )
+                } else {
+                    // No screenshot available — show message
+                    Column(
+                        modifier = Modifier.fillMaxSize().padding(32.dp),
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text("📸", fontSize = 48.sp)
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text("No screenshot captured yet",
+                            color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("Switch to the target app and back to capture a screenshot.\nRequires Android 11+ (API 30).",
+                            color = TextSecondary, fontSize = 13.sp, textAlign = TextAlign.Center,
+                            lineHeight = 20.sp)
+                    }
+                }
+            }
+            MirrorViewMode.Tree -> {
+                TreeMirrorView(
+                    rootNode = snapshot.rootNode,
+                    onRenderCount = { renderedNodesCount = it },
+                    onNodeClicked = { MirrorInteractionController.requestClick(it) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun StatChip(label: String, value: String, color: Color) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(color.copy(alpha = 0.1f))
+            .padding(horizontal = 8.dp, vertical = 3.dp)
+    ) {
+        Text("$label: ", color = TextMuted, fontSize = 10.sp)
+        Text(value, color = color, fontSize = 10.sp, fontWeight = FontWeight.Bold)
     }
 }

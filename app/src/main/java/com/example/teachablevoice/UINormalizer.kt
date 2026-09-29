@@ -15,32 +15,33 @@ object UINormalizer {
             return NodeType.TextField
         }
         
-        // 2. Checkboxes / Switches
-        if (node.isCheckable || className.contains("CheckBox") || className.contains("Switch") || className.contains("RadioButton")) {
+        // 2. Toggles (Switch, ToggleButton)
+        if (className.contains("Switch") || className.contains("ToggleButton")) {
+            return NodeType.Toggle
+        }
+        
+        // 3. Checkboxes / RadioButtons
+        if (node.isCheckable || className.contains("CheckBox") || className.contains("RadioButton")) {
             return NodeType.Checkbox
         }
         
-        // 3. Dropdowns
+        // 4. Dropdowns
         if (className.contains("Spinner") || className.contains("AutoCompleteTextView")) {
             return NodeType.Dropdown
         }
         
-        // 4. Buttons
+        // 5. Buttons
         if (className.contains("Button")) {
-            // Includes ImageButton, FloatingActionButton, etc.
-            if (className.contains("ImageButton") || className.contains("FloatingActionButton")) {
-                return NodeType.Button
-            }
             return NodeType.Button
         }
         
-        // 5. Images
+        // 6. Images
         if (className.contains("ImageView")) {
             // An image that is clickable usually acts as a button
             return if (node.isClickable) NodeType.Button else NodeType.Image
         }
         
-        // 6. Scrollable containers
+        // 7. Scrollable containers
         if (node.isScrollable) {
             if (className.contains("ListView") || className.contains("RecyclerView") || className.contains("GridView")) {
                 return NodeType.List
@@ -50,18 +51,18 @@ object UINormalizer {
         
         val hasText = !node.text.isNullOrEmpty()
         
-        // 7. Text elements
+        // 8. Text elements
         if (hasText) {
             // If it has text but is clickable, it might be acting as a button
             return if (node.isClickable) NodeType.Button else NodeType.Text
         }
         
-        // 8. Generic clickable elements (Cards, layout wrappers)
+        // 9. Generic clickable elements (Cards, layout wrappers)
         if (node.isClickable) {
             return NodeType.Card
         }
         
-        // 9. Unknown
+        // 10. Unknown
         return NodeType.Unknown
     }
 }
