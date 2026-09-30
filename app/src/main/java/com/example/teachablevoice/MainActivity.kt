@@ -31,6 +31,15 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import com.example.teachablevoice.ui.theme.TeachableVoiceAutomationTheme
+import com.example.teachablevoice.voice.VoiceStateRepository
+import com.example.teachablevoice.voice.VoiceListenerState
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import android.content.ComponentName
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 
 // ──────────────────────────────────────────────
 // Color Palette
@@ -83,6 +92,24 @@ fun MirrorApp() {
     var viewMode by remember { mutableStateOf(MirrorViewMode.Screenshot) }
     var showOverlay by remember { mutableStateOf(true) }
     var currentScreen by remember { mutableStateOf(AppScreen.Mirror) }
+    val context = LocalContext.current
+
+    // Voice service state
+    val voiceState by VoiceStateRepository.globalState.stateFlow.collectAsState()
+    val isVoiceActive = voiceState.isServiceRunning
+
+    // RECORD_AUDIO permission (still needed for the session to work)
+    var hasAudioPermission by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
+                == PackageManager.PERMISSION_GRANTED
+        )
+    }
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        hasAudioPermission = granted
+    }
 
     // Observe text input requests (from editable field taps in screenshot mode)
     val textInputRequest by MirrorInteractionController.textInputRequest.collectAsState()
@@ -100,6 +127,24 @@ fun MirrorApp() {
                     else MirrorViewMode.Screenshot
                 },
                 onOverlayToggle = { showOverlay = !showOverlay }
+            )
+
+            // ── Voice Service Toggle Bar ──
+            VoiceServiceBar(
+                isVoiceActive = voiceState.state != VoiceListenerState.STOPPED,
+                voiceState = voiceState.state,
+                hasAudioPermission = hasAudioPermission,
+                onToggleVoice = {
+                    if (!hasAudioPermission) {
+                        permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                    } else {
+                        // Open Android settings to set the default assistant
+                        val intent = Intent(Settings.ACTION_VOICE_INPUT_SETTINGS).apply {
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                        }
+                        context.startActivity(intent)
+                    }
+                }
             )
 
             // Main content area
@@ -144,8 +189,76 @@ fun MirrorApp() {
                 }
             )
         }
-        
+
         // Goal input is now in the Agent tab (AgentDebugScreen)
+    }
+}
+
+/**
+ * Voice service toggle bar — shown at the top of the app.
+ * Directs the user to Android Settings to set TAV as the default assistant.
+ */
+@Composable
+fun VoiceServiceBar(
+    isVoiceActive: Boolean,
+    voiceState: VoiceListenerState,
+    hasAudioPermission: Boolean,
+    onToggleVoice: () -> Unit
+) {
+    val barColor = when {
+        isVoiceActive && voiceState == VoiceListenerState.COMMAND_LISTENING -> Color(0xFF66BB6A)
+        isVoiceActive && voiceState == VoiceListenerState.PROCESSING -> Color(0xFF448AFF)
+        isVoiceActive -> AccentPurple
+        else -> Color(0xFF2A2A45)
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(barColor.copy(alpha = 0.15f))
+            .border(1.dp, barColor.copy(alpha = 0.3f), RoundedCornerShape(10.dp))
+            .clickable { onToggleVoice() }
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = if (isVoiceActive) "🎤" else "🔇",
+            fontSize = 18.sp
+        )
+        Spacer(modifier = Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = when {
+                    !hasAudioPermission -> "Voice — tap to grant microphone permission"
+                    isVoiceActive -> "TAV is Default Assistant — say \"Hey start listening\""
+                    else -> "Voice — tap to set TAV as Default Assistant"
+                },
+                color = if (isVoiceActive) TextPrimary else TextSecondary,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold
+            )
+            if (isVoiceActive) {
+                Text(
+                    text = when (voiceState) {
+                        VoiceListenerState.WAKE_LISTENING -> "Waiting for wake phrase..."
+                        VoiceListenerState.COMMAND_LISTENING -> "Listening for command..."
+                        VoiceListenerState.PROCESSING -> "Processing..."
+                        VoiceListenerState.AGENT_LAUNCHED -> "Agent running..."
+                        else -> ""
+                    },
+                    color = barColor,
+                    fontSize = 10.sp
+                )
+            }
+        }
+        Text(
+            text = if (isVoiceActive) "ACTIVE" else "SET",
+            color = if (isVoiceActive) SuccessGreen else AccentPurple,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold
+        )
     }
 }
 

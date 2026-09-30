@@ -19,6 +19,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import com.example.teachablevoice.agent.AgentOverlayManager
+import com.example.teachablevoice.voice.VoiceListeningOverlayManager
+import com.example.teachablevoice.voice.VoiceListenerState
+import com.example.teachablevoice.voice.VoiceStateRepository
+import kotlinx.coroutines.flow.collectLatest
 
 class MirrorAccessibilityService : AccessibilityService() {
 
@@ -26,6 +30,12 @@ class MirrorAccessibilityService : AccessibilityService() {
 
     // Agent overlay manager — shows translucent panel on top of target app
     private var overlayManager: AgentOverlayManager? = null
+
+    // Voice overlay manager — shows listening/processing state on top of any app
+    // Driven by VoiceStateRepository (written by VoiceForegroundService)
+    // This service does NOT own the microphone — it only draws the overlay.
+    private var voiceOverlayManager: VoiceListeningOverlayManager? = null
+    private var voiceObserverJob: Job? = null
 
     // Throttle: minimum time between extractions (ms)
     private var lastExtractionTime = 0L
@@ -43,6 +53,13 @@ class MirrorAccessibilityService : AccessibilityService() {
         // Initialize and start the agent overlay manager
         overlayManager = AgentOverlayManager(this)
         overlayManager?.startObserving()
+
+        // Initialize voice overlay manager and observe VoiceStateRepository.
+        // The microphone is owned by VoiceForegroundService (separate service).
+        // This AccessibilityService only draws the overlay via TYPE_ACCESSIBILITY_OVERLAY
+        // based on voice state changes.
+        voiceOverlayManager = VoiceListeningOverlayManager(this)
+        startObservingVoiceState()
 
         // Observe rich interaction commands from the Mirror UI
         serviceScope.launch {
@@ -493,7 +510,63 @@ class MirrorAccessibilityService : AccessibilityService() {
         extractionJob?.cancel()
         overlayManager?.stopObserving()
         overlayManager = null
+        voiceObserverJob?.cancel()
+        voiceObserverJob = null
+        voiceOverlayManager?.hide()
+        voiceOverlayManager = null
         _isServiceRunning.value = false
+    }
+
+    // ──────────────────────────────────────────────
+    // Voice overlay observation
+    // ──────────────────────────────────────────────
+
+    /**
+     * Observes VoiceStateRepository and drives VoiceListeningOverlayManager.
+     *
+     * Separation of concerns:
+     *   VoiceForegroundService → owns microphone, STT, wake word → writes VoiceStateRepository
+     *   MirrorAccessibilityService → reads VoiceStateRepository → controls voice overlay
+     *
+     * This service can draw overlays via TYPE_ACCESSIBILITY_OVERLAY without
+     * needing SYSTEM_ALERT_WINDOW. The voice service cannot draw overlays.
+     */
+    private fun startObservingVoiceState() {
+        voiceObserverJob?.cancel()
+        voiceObserverJob = serviceScope.launch {
+            VoiceStateRepository.globalState.stateFlow.collectLatest { voiceState ->
+                val overlay = voiceOverlayManager ?: return@collectLatest
+
+                when (voiceState.state) {
+                    VoiceListenerState.STOPPED,
+                    VoiceListenerState.WAKE_LISTENING -> {
+                        // No overlay needed during wake listening or when stopped
+                        overlay.hide()
+                    }
+                    VoiceListenerState.COMMAND_LISTENING -> {
+                        overlay.showListening()
+                        if (voiceState.partialText.isNotEmpty()) {
+                            overlay.updatePartialText(voiceState.partialText)
+                        }
+                    }
+                    VoiceListenerState.PROCESSING -> {
+                        overlay.showProcessing(voiceState.lastTranscription)
+                    }
+                    VoiceListenerState.AGENT_LAUNCHED -> {
+                        if (voiceState.routedApp.isNotEmpty()) {
+                            overlay.showRouting(voiceState.routedApp, voiceState.routedTask)
+                        }
+                        // Hide voice overlay after brief delay — agent overlay takes over
+                        overlay.hideAfterDelay(2000)
+                    }
+                }
+
+                // Show error overlay if present
+                if (voiceState.errorMessage.isNotEmpty()) {
+                    overlay.showError(voiceState.errorMessage)
+                }
+            }
+        }
     }
 
     private fun logTreeSummary(root: NormalizedNode, pkg: String) {

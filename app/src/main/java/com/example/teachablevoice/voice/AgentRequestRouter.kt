@@ -185,12 +185,11 @@ class AgentRequestRouter(
         )
     }
 
-    companion object KnownApps {
-        /**
-         * Well-known app name → package mapping for common apps.
-         * Only used as a last resort when AppResolver can't find the app.
-         */
-        private val KNOWN_PACKAGES = mapOf(
+    /**
+     * Well-known app name → package mapping for common apps.
+     * Only used as a last resort when AppResolver can't find the app.
+     */
+    private val KNOWN_PACKAGES = mapOf(
             "amazon" to "in.amazon.mShop.android.shopping",
             "zomato" to "com.application.zomato",
             "swiggy" to "in.swiggy.android",
@@ -214,5 +213,4 @@ class AgentRequestRouter(
             "gpay" to "com.google.android.apps.nbu.paisa.user",
             "google pay" to "com.google.android.apps.nbu.paisa.user"
         )
-    }
 }
