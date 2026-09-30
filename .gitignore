@@ -1,3 +1,4 @@
+
 *.iml
 .gradle
 /local.properties
@@ -38,3 +39,6 @@ secrets.properties
 /app/build/
 *.apk
 *.aab
+
+.idea/vcs.xml
+.idea/
