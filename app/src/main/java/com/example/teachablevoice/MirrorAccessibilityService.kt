@@ -18,10 +18,14 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import com.example.teachablevoice.agent.AgentOverlayManager
 
 class MirrorAccessibilityService : AccessibilityService() {
 
     private val uiExtractor = UIExtractor()
+
+    // Agent overlay manager — shows translucent panel on top of target app
+    private var overlayManager: AgentOverlayManager? = null
 
     // Throttle: minimum time between extractions (ms)
     private var lastExtractionTime = 0L
@@ -35,6 +39,10 @@ class MirrorAccessibilityService : AccessibilityService() {
         Log.d(TAG, "Accessibility Service: Connected")
 
         _isServiceRunning.value = true
+
+        // Initialize and start the agent overlay manager
+        overlayManager = AgentOverlayManager(this)
+        overlayManager?.startObserving()
 
         // Observe rich interaction commands from the Mirror UI
         serviceScope.launch {
@@ -60,6 +68,9 @@ class MirrorAccessibilityService : AccessibilityService() {
             is InteractionCommand.CoordinateLongPress -> handleCoordinateLongPress(command.screenX, command.screenY)
             is InteractionCommand.CoordinateSwipe -> handleCoordinateSwipe(command)
             is InteractionCommand.GlobalBack -> performGlobalAction(GLOBAL_ACTION_BACK)
+            is InteractionCommand.GlobalHome -> performGlobalAction(GLOBAL_ACTION_HOME)
+            is InteractionCommand.GlobalRecents -> performGlobalAction(GLOBAL_ACTION_RECENTS)
+            is InteractionCommand.GlobalNotifications -> performGlobalAction(GLOBAL_ACTION_NOTIFICATIONS)
         }
     }
 
@@ -480,6 +491,8 @@ class MirrorAccessibilityService : AccessibilityService() {
     override fun onDestroy() {
         super.onDestroy()
         extractionJob?.cancel()
+        overlayManager?.stopObserving()
+        overlayManager = null
         _isServiceRunning.value = false
     }
 

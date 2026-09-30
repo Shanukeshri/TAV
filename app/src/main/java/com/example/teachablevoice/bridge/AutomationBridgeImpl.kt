@@ -90,6 +90,31 @@ class AutomationBridgeImpl(private val context: Context) : AutomationBridge {
         return Result.SUCCESS
     }
 
+    override suspend fun home(): Result {
+        MirrorInteractionController.requestGlobalHome()
+        return Result.SUCCESS
+    }
+
+    override suspend fun recents(): Result {
+        MirrorInteractionController.requestGlobalRecents()
+        return Result.SUCCESS
+    }
+
+    override suspend fun notifications(): Result {
+        MirrorInteractionController.requestGlobalNotifications()
+        return Result.SUCCESS
+    }
+
+    override suspend fun longClick(elementId: String): Result {
+        MirrorInteractionController.requestLongClick(elementId)
+        return Result.SUCCESS
+    }
+
+    override suspend fun swipe(startX: Float, startY: Float, endX: Float, endY: Float): Result {
+        MirrorInteractionController.requestCoordinateSwipe(startX, startY, endX, endY)
+        return Result.SUCCESS
+    }
+
     override suspend fun waitForUiChange(timeoutMs: Long): UiState {
         // Simplistic wait for demonstration. In reality, observe snapshotFlow for changes.
         val initialState = getUiState()

@@ -91,6 +91,10 @@ Java_com_example_teachablevoice_model_LlamaCppBackend_generateNative(JNIEnv *env
         if (n_eval > batch_size) n_eval = batch_size;
         
         struct llama_batch batch = llama_batch_get_one(&tokens[i], n_eval);
+        for (int j = 0; j < n_eval; j++) {
+            batch.pos[j] = i + j;
+        }
+        
         if (llama_decode(g_ctx, batch) != 0) {
             LOGE("llama_decode failed at chunk %d", i);
             return env->NewStringUTF("{\"action\": \"ASK\", \"message\": \"Decode failed\"}");
@@ -119,6 +123,7 @@ Java_com_example_teachablevoice_model_LlamaCppBackend_generateNative(JNIEnv *env
 
         // Decode the new token for the next iteration
         struct llama_batch next_batch = llama_batch_get_one(&new_token, 1);
+        next_batch.pos[0] = n_tokens + i;
         if (llama_decode(g_ctx, next_batch) != 0) {
             LOGE("llama_decode failed at token %d", i);
             break;

@@ -27,7 +27,7 @@ class LlamaCppBackend(private val context: Context) : ModelBackend {
     override suspend fun load() {
         if (!nativeAvailable) throw IllegalStateException("Native library libtav_llama.so not loaded")
         withContext(Dispatchers.IO) {
-            val assetName = "SmolLM2-135M-Instruct-Q4_K_M.gguf"
+            val assetName = "LittleLamb-290M.gguf"
             val file = File(context.filesDir, assetName)
             if (!file.exists()) {
                 android.util.Log.i("LlamaCppBackend", "Copying model from assets to ${file.absolutePath}…")

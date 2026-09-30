@@ -42,6 +42,9 @@ sealed class InteractionCommand {
     ) : InteractionCommand()
 
     object GlobalBack : InteractionCommand()
+    object GlobalHome : InteractionCommand()
+    object GlobalRecents : InteractionCommand()
+    object GlobalNotifications : InteractionCommand()
 }
 
 /**
@@ -112,5 +115,17 @@ object MirrorInteractionController {
 
     fun requestGlobalBack() {
         _commands.tryEmit(InteractionCommand.GlobalBack)
+    }
+
+    fun requestGlobalHome() {
+        _commands.tryEmit(InteractionCommand.GlobalHome)
+    }
+
+    fun requestGlobalRecents() {
+        _commands.tryEmit(InteractionCommand.GlobalRecents)
+    }
+
+    fun requestGlobalNotifications() {
+        _commands.tryEmit(InteractionCommand.GlobalNotifications)
     }
 }

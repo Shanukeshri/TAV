@@ -51,6 +51,7 @@ private val ErrorRed = Color(0xFFEF5350)
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.example.teachablevoice.model.ModelManager.init(applicationContext)
         enableEdgeToEdge()
         setContent {
             TeachableVoiceAutomationTheme {
@@ -72,7 +73,7 @@ fun countTotalNodes(node: NormalizedNode): Int {
 enum class MirrorViewMode { Screenshot, Tree }
 
 /** Top-level screen navigation */
-enum class AppScreen { Mirror, Apps, Debug }
+enum class AppScreen { Mirror, Apps, Model, Debug }
 
 @Composable
 fun MirrorApp() {
@@ -113,6 +114,9 @@ fun MirrorApp() {
                     }
                     AppScreen.Apps -> {
                         AppLauncherScreen()
+                    }
+                    AppScreen.Model -> {
+                        ModelChatScreen()
                     }
                     AppScreen.Debug -> {
                         com.example.teachablevoice.agent.AgentDebugScreen()
@@ -258,6 +262,12 @@ fun BottomNavBar(currentScreen: AppScreen, onScreenChange: (AppScreen) -> Unit) 
             label = "Apps",
             isSelected = currentScreen == AppScreen.Apps,
             onClick = { onScreenChange(AppScreen.Apps) }
+        )
+        BottomNavItem(
+            icon = "🤖",
+            label = "Model",
+            isSelected = currentScreen == AppScreen.Model,
+            onClick = { onScreenChange(AppScreen.Model) }
         )
         BottomNavItem(
             icon = "🐛",

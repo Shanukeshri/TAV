@@ -45,7 +45,7 @@ class AgentController(
             state.appendLog("OBSERVE", "Got UI: app=${currentState.app}, elements=${currentState.elements.size}, fingerprint=${currentState.fingerprint}")
 
             // Step 3: Agent loop
-            while (state.stepCount < 30) {
+            while (state.isRunning) {
                 state.stepCount++
                 val stepNum = state.stepCount
                 
@@ -128,11 +128,6 @@ class AgentController(
                 }
             }
 
-            if (state.stepCount >= 30) {
-                state.appendLog("LIMIT", "Step limit reached (30 steps)")
-                state.status = AgentStatus.ERROR
-                state.statusMessage = "Step limit reached"
-            }
         } catch (e: Exception) {
             state.appendLog("ERROR", "Unhandled: ${e.message}", isError = true)
             state.status = AgentStatus.ERROR
@@ -147,9 +142,22 @@ class AgentController(
     private suspend fun executeAction(action: AgentAction) {
         when (action.action) {
             ActionType.CLICK -> bridge.click(action.elementId!!)
+            ActionType.LONG_CLICK -> bridge.longClick(action.elementId!!)
             ActionType.INPUT -> bridge.input(action.elementId!!, action.value!!)
             ActionType.SCROLL -> bridge.scroll(action.elementId, Direction.valueOf(action.direction ?: "DOWN"))
+            ActionType.SWIPE -> {
+                val dir = action.direction?.uppercase() ?: "UP"
+                when (dir) {
+                    "UP" -> bridge.swipe(500f, 1500f, 500f, 500f)
+                    "DOWN" -> bridge.swipe(500f, 500f, 500f, 1500f)
+                    "LEFT" -> bridge.swipe(900f, 1000f, 100f, 1000f)
+                    "RIGHT" -> bridge.swipe(100f, 1000f, 900f, 1000f)
+                }
+            }
             ActionType.BACK -> bridge.back()
+            ActionType.HOME -> bridge.home()
+            ActionType.RECENTS -> bridge.recents()
+            ActionType.NOTIFICATIONS -> bridge.notifications()
             else -> {}
         }
     }
@@ -177,7 +185,8 @@ class AgentController(
             - Output ONLY a valid JSON object.
             - Do not include any reasoning or markdown wrapping.
             - Format: {"action": "CLICK", "element_id": "id123"}
-            - Allowed actions: OPEN_APP, CLICK, INPUT, SCROLL, BACK, WAIT, DONE, ASK
+            - Allowed actions: OPEN_APP, CLICK, LONG_CLICK, INPUT, SCROLL, SWIPE, BACK, HOME, RECENTS, NOTIFICATIONS, WAIT, DONE, ASK
+            - For SWIPE and SCROLL, optionally provide "direction" (UP, DOWN, LEFT, RIGHT).
             - Do not repeat a failed action.
             - If dead end, choose BACK.
             - If goal satisfied, choose DONE.
