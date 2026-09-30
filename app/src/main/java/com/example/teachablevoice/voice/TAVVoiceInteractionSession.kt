@@ -32,6 +32,7 @@ class TAVVoiceInteractionSession(context: Context) : VoiceInteractionSession(con
         private const val TAG = "TAVVoiceSession"
         private const val RESTART_DELAY_MS = 1500L
         private const val SILENCE_TIMEOUT_MS = 2000L
+        private const val HARD_LISTENING_TIMEOUT_MS = 7000L
     }
 
     private val voiceState = VoiceStateRepository.globalState
@@ -43,6 +44,7 @@ class TAVVoiceInteractionSession(context: Context) : VoiceInteractionSession(con
     
     private var accumulatedCommand = ""
     private var silenceRunnable: Runnable? = null
+    private var hardTimeoutRunnable: Runnable? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -114,6 +116,23 @@ class TAVVoiceInteractionSession(context: Context) : VoiceInteractionSession(con
         })
 
         geminiSttClient?.connect()
+
+        hardTimeoutRunnable?.let { handler.removeCallbacks(it) }
+        hardTimeoutRunnable = Runnable {
+            if (voiceState.current.state == VoiceListenerState.LISTENING) {
+                Log.i(TAG, "7-second hard timeout reached, processing whatever was heard")
+                audioCaptureManager?.stop()
+                geminiSttClient?.sendEndOfAudio()
+                
+                // Fallback to finalize if no final transcript is received soon
+                handler.postDelayed({
+                    if (voiceState.current.state == VoiceListenerState.LISTENING) {
+                        finalizeCommand()
+                    }
+                }, 2000)
+            }
+        }
+        handler.postDelayed(hardTimeoutRunnable!!, HARD_LISTENING_TIMEOUT_MS)
     }
 
     private fun stopCaptureAndClient() {
@@ -122,6 +141,7 @@ class TAVVoiceInteractionSession(context: Context) : VoiceInteractionSession(con
         audioCaptureManager = null
         geminiSttClient = null
         silenceRunnable?.let { handler.removeCallbacks(it) }
+        hardTimeoutRunnable?.let { handler.removeCallbacks(it) }
     }
 
     private fun resetSilenceTimer() {
@@ -147,6 +167,7 @@ class TAVVoiceInteractionSession(context: Context) : VoiceInteractionSession(con
         if (voiceState.current.state != VoiceListenerState.LISTENING) return
         
         silenceRunnable?.let { handler.removeCallbacks(it) }
+        hardTimeoutRunnable?.let { handler.removeCallbacks(it) }
         val finalCommand = accumulatedCommand.trim()
         
         if (finalCommand.isEmpty()) {
