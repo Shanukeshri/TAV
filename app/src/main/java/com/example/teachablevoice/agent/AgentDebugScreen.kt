@@ -1,27 +1,44 @@
 package com.example.teachablevoice.agent
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import com.example.teachablevoice.voice.VoiceAgentCoordinator
+import com.example.teachablevoice.voice.VoiceAgentState
 
 private val AccentPurple = Color(0xFF9C27B0)
+private val AccentBlue = Color(0xFF448AFF)
+private val AccentCyan = Color(0xFF18FFFF)
+private val MicActive = Color(0xFF66BB6A)
+private val MicError = Color(0xFFEF5350)
 
 @Composable
 fun AgentDebugScreen() {
@@ -29,17 +46,46 @@ fun AgentDebugScreen() {
     val context = LocalContext.current
     var objective by remember { mutableStateOf("") }
 
+    // ── Voice coordinator (singleton per composition) ──
+    val voiceCoordinator = remember { VoiceAgentCoordinator(context) }
+    val voiceState by voiceCoordinator.state.collectAsState()
+    val partialText by voiceCoordinator.partialText.collectAsState()
+    val lastTranscription by voiceCoordinator.lastTranscription.collectAsState()
+    val voiceError by voiceCoordinator.errorMessage.collectAsState()
+
+    // Clean up on dispose
+    DisposableEffect(Unit) {
+        onDispose { voiceCoordinator.destroy() }
+    }
+
+    // ── RECORD_AUDIO permission ──
+    var hasAudioPermission by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
+                == PackageManager.PERMISSION_GRANTED
+        )
+    }
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        hasAudioPermission = granted
+        if (granted) {
+            voiceCoordinator.startListening()
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp)
     ) {
-        // ── Goal input at the TOP ──
+        // ── Goal input + voice toggle ──
         Card(
             colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E30)),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(12.dp)) {
+                // Text input row
                 OutlinedTextField(
                     value = objective,
                     onValueChange = { objective = it },
@@ -55,29 +101,50 @@ fun AgentDebugScreen() {
                     )
                 )
                 Spacer(modifier = Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+
+                // Action buttons row
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // RUN AGENT (typed command)
                     Button(
                         onClick = {
                             if (objective.isNotBlank()) {
-                                val intent = Intent(context, AgentForegroundService::class.java).apply {
-                                    putExtra("OBJECTIVE", objective)
-                                }
-                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                                    context.startForegroundService(intent)
-                                } else {
-                                    context.startService(intent)
-                                }
+                                voiceCoordinator.processCommand(objective)
                             }
                         },
                         modifier = Modifier.weight(1f),
                         colors = ButtonDefaults.buttonColors(containerColor = AccentPurple),
-                        enabled = !agentState.isRunning
+                        enabled = !agentState.isRunning && objective.isNotBlank()
                     ) {
-                        Text(if (agentState.isRunning) "RUNNING…" else "RUN AGENT", fontWeight = FontWeight.Bold)
+                        Text(
+                            if (agentState.isRunning) "RUNNING…" else "RUN AGENT",
+                            fontWeight = FontWeight.Bold
+                        )
                     }
+
+                    // VOICE button
+                    VoiceMicButton(
+                        voiceState = voiceState,
+                        hasPermission = hasAudioPermission,
+                        isAgentRunning = agentState.isRunning,
+                        onStartListening = {
+                            if (hasAudioPermission) {
+                                voiceCoordinator.startListening()
+                            } else {
+                                permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                            }
+                        },
+                        onStopListening = { voiceCoordinator.stopListening() }
+                    )
+
+                    // CLEAR
                     OutlinedButton(
-                        onClick = { AgentStateRepository.globalState.reset() },
-                        modifier = Modifier,
+                        onClick = {
+                            AgentStateRepository.globalState.reset()
+                            voiceCoordinator.stopListening()
+                        },
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Gray)
                     ) {
                         Text("CLEAR")
@@ -85,8 +152,18 @@ fun AgentDebugScreen() {
                 }
             }
         }
-        
-        Spacer(modifier = Modifier.height(12.dp))
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // ── Voice state indicator ──
+        VoiceStateBar(
+            voiceState = voiceState,
+            partialText = partialText,
+            lastTranscription = lastTranscription,
+            errorMessage = voiceError
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
 
         // ── Status bar ──
         val statusColor = when (agentState.status) {
@@ -189,6 +266,7 @@ fun AgentDebugScreen() {
                     "LOOP", "RECOVERY" -> Color(0xFFF48FB1)
                     "ERROR" -> Color(0xFFEF5350)
                     "END", "LIMIT" -> Color.Gray
+                    "VOICE" -> AccentCyan
                     else -> Color.White
                 }
                 Row(modifier = Modifier.padding(vertical = 1.dp)) {
@@ -212,13 +290,160 @@ fun AgentDebugScreen() {
             if (agentState.log.isEmpty()) {
                 item {
                     Text(
-                        "Enter a goal above and press RUN AGENT.\nThe full action trace will appear here.",
+                        "Enter a goal above and press RUN AGENT,\nor tap 🎤 to speak your command.\nThe full action trace will appear here.",
                         color = Color.Gray,
                         fontSize = 12.sp,
                         modifier = Modifier.padding(8.dp)
                     )
                 }
             }
+        }
+    }
+}
+
+// ──────────────────────────────────────────────
+// Voice Mic Button
+// ──────────────────────────────────────────────
+
+@Composable
+fun VoiceMicButton(
+    voiceState: VoiceAgentState,
+    hasPermission: Boolean,
+    isAgentRunning: Boolean,
+    onStartListening: () -> Unit,
+    onStopListening: () -> Unit
+) {
+    val isListening = voiceState == VoiceAgentState.LISTENING
+
+    // Pulsing animation when listening
+    val infiniteTransition = rememberInfiniteTransition(label = "mic_pulse")
+    val pulseScale by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.15f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(600, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "mic_scale"
+    )
+
+    val bgColor by animateColorAsState(
+        targetValue = when {
+            isListening -> MicActive
+            voiceState == VoiceAgentState.ERROR -> MicError
+            voiceState == VoiceAgentState.PROCESSING -> AccentBlue
+            else -> Color(0xFF2A2A45)
+        },
+        label = "mic_bg"
+    )
+
+    val scale = if (isListening) pulseScale else 1f
+
+    Box(
+        modifier = Modifier
+            .size(48.dp)
+            .scale(scale)
+            .clip(CircleShape)
+            .background(bgColor)
+            .border(
+                width = 2.dp,
+                brush = if (isListening) Brush.linearGradient(listOf(MicActive, AccentCyan))
+                else Brush.linearGradient(listOf(Color(0xFF3A3A55), Color(0xFF2A2A45))),
+                shape = CircleShape
+            )
+            .clickable(enabled = !isAgentRunning) {
+                if (isListening) {
+                    onStopListening()
+                } else {
+                    onStartListening()
+                }
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = when {
+                isListening -> "🔴"
+                voiceState == VoiceAgentState.PROCESSING -> "⏳"
+                voiceState == VoiceAgentState.ERROR -> "⚠️"
+                !hasPermission -> "🔒"
+                else -> "🎤"
+            },
+            fontSize = 20.sp
+        )
+    }
+}
+
+// ──────────────────────────────────────────────
+// Voice State Bar
+// ──────────────────────────────────────────────
+
+@Composable
+fun VoiceStateBar(
+    voiceState: VoiceAgentState,
+    partialText: String,
+    lastTranscription: String,
+    errorMessage: String
+) {
+    // Only show when voice is active or has recent info
+    if (voiceState == VoiceAgentState.IDLE && lastTranscription.isEmpty()) return
+
+    val (barColor, statusText) = when (voiceState) {
+        VoiceAgentState.IDLE -> Color.Gray to "Ready"
+        VoiceAgentState.LISTENING -> MicActive to "🎤 Listening..."
+        VoiceAgentState.PROCESSING -> AccentBlue to "⏳ Processing..."
+        VoiceAgentState.RUNNING_AGENT -> AccentPurple to "🤖 Agent running..."
+        VoiceAgentState.DONE -> Color(0xFF66BB6A) to "✅ Task complete"
+        VoiceAgentState.ERROR -> MicError to "❌ Error"
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(barColor.copy(alpha = 0.1f))
+            .border(1.dp, barColor.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+            .padding(10.dp)
+    ) {
+        Text(
+            text = statusText,
+            color = barColor,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold
+        )
+
+        // Show partial transcription while listening
+        if (voiceState == VoiceAgentState.LISTENING && partialText.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "\"$partialText\"",
+                color = Color.White.copy(alpha = 0.7f),
+                fontSize = 12.sp,
+                fontFamily = FontFamily.Monospace,
+                maxLines = 2
+            )
+        }
+
+        // Show last transcription when processing
+        if (voiceState == VoiceAgentState.PROCESSING && lastTranscription.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "\"$lastTranscription\"",
+                color = Color.White,
+                fontSize = 12.sp,
+                fontFamily = FontFamily.Monospace,
+                maxLines = 2
+            )
+        }
+
+        // Show error message
+        if (voiceState == VoiceAgentState.ERROR && errorMessage.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = errorMessage,
+                color = MicError,
+                fontSize = 11.sp,
+                maxLines = 2
+            )
         }
     }
 }
@@ -238,3 +463,4 @@ fun StatBox(label: String, value: String, modifier: Modifier = Modifier) {
         Text(value, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
     }
 }
+

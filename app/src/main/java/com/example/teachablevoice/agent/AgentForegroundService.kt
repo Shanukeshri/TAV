@@ -34,6 +34,7 @@ class AgentForegroundService : Service() {
     companion object {
         private const val TAG = "AgentService"
         const val EXTRA_OBJECTIVE = "OBJECTIVE"
+        const val EXTRA_TARGET_APP = "TARGET_APP"
     }
 
     override fun onCreate() {
@@ -57,14 +58,22 @@ class AgentForegroundService : Service() {
         state.appendLog("SERVICE", "Using Gemini API (gemini-3.5-flash-lite)")
         state.appendLog("SERVICE", "Objective: $objective")
 
-        // Resolve target app from goal text
-        val targetApp = AppResolver.findTargetApp(this, objective)
-        if (targetApp != null) {
-            state.appendLog("RESOLVE", "Found app: $targetApp")
+        // Resolve target app from goal text (voice router may provide pre-resolved app)
+        val preResolvedApp = intent?.getStringExtra(EXTRA_TARGET_APP)
+        val targetApp = if (!preResolvedApp.isNullOrBlank()) {
+            state.appendLog("RESOLVE", "Using pre-resolved app: $preResolvedApp")
+            preResolvedApp
         } else {
-            state.appendLog("RESOLVE", "No app match found, falling back to Settings")
+            val resolved = AppResolver.findTargetApp(this, objective)
+            if (resolved != null) {
+                state.appendLog("RESOLVE", "Found app: $resolved")
+                resolved
+            } else {
+                state.appendLog("RESOLVE", "No app match found, falling back to Settings")
+                "com.android.settings"
+            }
         }
-        val resolvedApp = targetApp ?: "com.android.settings"
+        val resolvedApp = targetApp
 
         agentJob = serviceScope.launch {
             try {

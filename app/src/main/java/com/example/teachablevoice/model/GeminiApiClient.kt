@@ -1,6 +1,7 @@
 package com.example.teachablevoice.model
 
 import android.util.Log
+import com.example.teachablevoice.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -16,6 +17,9 @@ import java.net.URL
  * Uses the gemini-3.5-flash-lite model for fast inference.
  *
  * Architecture: AgentController → GeminiApiClient → Gemini API
+ *
+ * API key is read from BuildConfig.GEMINI_API_KEY, which is injected
+ * from local.properties at build time. Never hardcode the key in source.
  */
 class GeminiApiClient(
     private val apiKey: String = API_KEY,
@@ -26,7 +30,7 @@ class GeminiApiClient(
 
     companion object {
         private const val TAG = "GeminiApiClient"
-        private const val API_KEY = "AQ.Ab8RN6J1muPwAp1Z5PtYxkWpndq14CGr1mLUme9ULNU3acct4g"
+        private val API_KEY = BuildConfig.GEMINI_API_KEY
         private const val MODEL_ID = "gemini-3.5-flash-lite"
         private const val BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/"
         private const val CONNECT_TIMEOUT_MS = 15_000
