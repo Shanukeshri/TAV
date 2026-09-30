@@ -18,50 +18,35 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
 /**
- * The actual voice session that runs when the wake word is detected.
+ * The actual voice session that runs when the system invokes TAV.
  *
  * Responsibilities:
- * - Start STT to listen for the user's command.
- * - Route the command through Gemini via AgentRequestRouter.
+ * - Start AudioRecord to capture voice.
+ * - Connect to Gemini Live STT to get transcript.
+ * - Route the command through AgentRequestRouter.
  * - Launch AgentForegroundService.
- * - Hide itself / finish when done, so TAVVoiceInteractionService can
- *   resume wake-word listening.
- *
- * It updates VoiceStateRepository so MirrorAccessibilityService can draw the UI.
- * (We do not use VoiceInteractionSession's built-in window UI here because
- * we want the UI to remain in the accessibility overlay).
  */
 class TAVVoiceInteractionSession(context: Context) : VoiceInteractionSession(context) {
 
     companion object {
         private const val TAG = "TAVVoiceSession"
         private const val RESTART_DELAY_MS = 1500L
+        private const val SILENCE_TIMEOUT_MS = 2000L
     }
 
-    private val voiceInputManager = VoiceInputManager(context)
     private val voiceState = VoiceStateRepository.globalState
     private val handler = Handler(Looper.getMainLooper())
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    // We reuse wake word manager just to check if the user repeated the wake phrase
-    private val wakeWordManager = WakeWordManager()
 
-    // ── Continuous Listening State ──
+    private var audioCaptureManager: AudioCaptureManager? = null
+    private var geminiSttClient: GeminiLiveSttClient? = null
+    
     private var accumulatedCommand = ""
-    private var currentPartial = ""
     private var silenceRunnable: Runnable? = null
-    private val SILENCE_TIMEOUT_MS = 1500L
-    private var emptySilenceCount = 0
-    private val MAX_EMPTY_SILENCE = 5 // Hide if no speech after ~7.5 seconds
-    private var pendingProcess = false
 
     override fun onCreate() {
         super.onCreate()
-        
-        // Hide the system's default VoiceInteractionSession UI window
-        // because we draw our UI using AccessibilityOverlay.
         window.window?.attributes?.alpha = 0f
-        
-        setupCommandListener()
     }
 
     override fun onShow(args: Bundle?, showFlags: Int) {
@@ -69,146 +54,117 @@ class TAVVoiceInteractionSession(context: Context) : VoiceInteractionSession(con
         Log.i(TAG, "Session shown, starting command capture")
         
         accumulatedCommand = ""
-        currentPartial = ""
-        emptySilenceCount = 0
-        pendingProcess = false
-        voiceState.transitionTo(VoiceListenerState.COMMAND_LISTENING)
+        voiceState.transitionTo(VoiceListenerState.LISTENING)
         
-        // Give the UI a moment to show up before starting the mic
-        handler.postDelayed({
-            voiceInputManager.startListening()
-            startSilenceTimer()
-        }, 300)
+        setupGeminiAndAudio()
     }
 
     override fun onHide() {
         super.onHide()
         Log.i(TAG, "Session hidden")
-        voiceInputManager.stopListening()
-        
-        // When session hides, if we aren't running the agent, return to wake listening
-        if (voiceState.current.state != VoiceListenerState.AGENT_LAUNCHED) {
-            voiceState.transitionTo(VoiceListenerState.WAKE_LISTENING)
+        stopCaptureAndClient()
+        if (voiceState.current.state != VoiceListenerState.AGENT_RUNNING) {
+            voiceState.transitionTo(VoiceListenerState.IDLE)
         }
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        voiceInputManager.destroy()
+        stopCaptureAndClient()
         handler.removeCallbacksAndMessages(null)
-        silenceRunnable = null
     }
 
-    private fun updateUI() {
-        val display = (accumulatedCommand + " " + currentPartial).trim()
-        if (voiceState.current.state == VoiceListenerState.COMMAND_LISTENING) {
-            voiceState.updatePartialText(display)
-        }
+    private fun setupGeminiAndAudio() {
+        geminiSttClient = GeminiLiveSttClient(object : GeminiLiveSttClient.Listener {
+            override fun onConnected() {
+                Log.i(TAG, "Gemini STT connected, starting audio capture")
+                audioCaptureManager?.start()
+            }
+
+            override fun onTranscript(text: String, isFinal: Boolean) {
+                accumulatedCommand = if (accumulatedCommand.isEmpty()) text else "$accumulatedCommand $text"
+                voiceState.updatePartialText(accumulatedCommand)
+                
+                resetSilenceTimer()
+                
+                if (isFinal) {
+                    finalizeCommand()
+                }
+            }
+
+            override fun onError(error: String) {
+                Log.e(TAG, "Gemini STT error: $error")
+                voiceState.setError("STT error: $error")
+                handler.postDelayed({ hide() }, RESTART_DELAY_MS)
+            }
+
+            override fun onClosed() {
+                Log.i(TAG, "Gemini STT closed")
+            }
+        })
+        
+        audioCaptureManager = AudioCaptureManager(object : AudioCaptureManager.AudioCaptureListener {
+            override fun onAudioData(data: ByteArray, size: Int) {
+                geminiSttClient?.sendAudio(data, size)
+            }
+
+            override fun onError(error: String) {
+                Log.e(TAG, "Audio capture error: $error")
+            }
+        })
+
+        geminiSttClient?.connect()
     }
 
-    private fun startSilenceTimer() {
+    private fun stopCaptureAndClient() {
+        audioCaptureManager?.stop()
+        geminiSttClient?.close()
+        audioCaptureManager = null
+        geminiSttClient = null
+        silenceRunnable?.let { handler.removeCallbacks(it) }
+    }
+
+    private fun resetSilenceTimer() {
         silenceRunnable?.let { handler.removeCallbacks(it) }
         silenceRunnable = Runnable {
-            if (voiceState.current.state != VoiceListenerState.COMMAND_LISTENING) return@Runnable
-
-            if (currentPartial.isEmpty()) {
-                val finalCommand = accumulatedCommand.trim()
-                if (finalCommand.isNotEmpty()) {
-                    Log.i(TAG, "Silence timeout reached (empty burst). Processing: $finalCommand")
-                    processCommand(finalCommand)
-                } else {
-                    emptySilenceCount++
-                    if (emptySilenceCount >= MAX_EMPTY_SILENCE) {
-                        Log.i(TAG, "Max silence reached. Hiding session.")
-                        voiceState.setError("Listening timed out.")
-                        handler.postDelayed({ hide() }, RESTART_DELAY_MS)
-                    } else {
-                        // Keep waiting
-                        startSilenceTimer()
+            if (voiceState.current.state == VoiceListenerState.LISTENING) {
+                Log.i(TAG, "Silence timeout, sending audioStreamEnd")
+                audioCaptureManager?.stop()
+                geminiSttClient?.sendEndOfAudio()
+                
+                // Fallback to finalize if no final transcript is received soon
+                handler.postDelayed({
+                    if (voiceState.current.state == VoiceListenerState.LISTENING) {
+                        finalizeCommand()
                     }
-                }
-            } else {
-                // There is a partial result, but user paused for 1.5s.
-                // We stop listening to force native STT to finalize its result via onSpeechResult.
-                Log.i(TAG, "Silence timeout reached (active burst). Forcing STT to finalize.")
-                pendingProcess = true
-                voiceInputManager.stopListening()
+                }, 2000)
             }
         }
         handler.postDelayed(silenceRunnable!!, SILENCE_TIMEOUT_MS)
     }
 
-    private fun resetSilenceTimer() {
-        emptySilenceCount = 0
-        startSilenceTimer()
-    }
+    private fun finalizeCommand() {
+        if (voiceState.current.state != VoiceListenerState.LISTENING) return
+        
+        silenceRunnable?.let { handler.removeCallbacks(it) }
+        val finalCommand = accumulatedCommand.trim()
+        
+        if (finalCommand.isEmpty()) {
+            voiceState.setError("No command heard")
+            handler.postDelayed({ hide() }, RESTART_DELAY_MS)
+            return
+        }
 
-    private fun setupCommandListener() {
-        voiceInputManager.setListener(object : VoiceInputListener {
-            override fun onSpeechResult(text: String) {
-                if (!wakeWordManager.isWakePhrase(text)) {
-                    accumulatedCommand += " $text"
-                }
-                currentPartial = ""
-                updateUI()
-                
-                if (pendingProcess) {
-                    pendingProcess = false
-                    val finalCommand = accumulatedCommand.trim()
-                    if (finalCommand.isNotEmpty()) {
-                        Log.i(TAG, "Forced speech result finalized. Processing: $finalCommand")
-                        processCommand(finalCommand)
-                    }
-                } else {
-                    resetSilenceTimer()
-                }
-            }
-
-            override fun onPartialResult(partialText: String) {
-                currentPartial = partialText
-                updateUI()
-                resetSilenceTimer()
-            }
-
-            override fun onListeningStarted() {
-                Log.d(TAG, "Command STT started")
-            }
-
-            override fun onListeningStopped() {
-                Log.d(TAG, "Command STT stopped")
-                // STT stopped natively (e.g. paused). Restart it immediately so we don't miss anything.
-                if (voiceState.current.state == VoiceListenerState.COMMAND_LISTENING) {
-                    handler.postDelayed({
-                        if (voiceState.current.state == VoiceListenerState.COMMAND_LISTENING) {
-                            voiceInputManager.startListening()
-                        }
-                    }, 100)
-                }
-            }
-
-            override fun onSpeechError(error: String) {
-                Log.w(TAG, "Command STT error: $error")
-                if (pendingProcess) {
-                    pendingProcess = false
-                    val finalCommand = accumulatedCommand.trim()
-                    if (finalCommand.isNotEmpty()) {
-                        Log.i(TAG, "Forced speech resulted in error. Processing accumulated: $finalCommand")
-                        processCommand(finalCommand)
-                    }
-                }
-                // STT error (like timeout or no match). We ignore it here because 
-                // VoiceInputManager will also fire onListeningStopped(), which handles the restart.
-            }
-        })
+        voiceState.transitionTo(VoiceListenerState.TRANSCRIBING)
+        stopCaptureAndClient()
+        
+        processCommand(finalCommand)
     }
 
     private fun processCommand(command: String) {
         voiceState.setTranscription(command)
         voiceState.transitionTo(VoiceListenerState.PROCESSING)
         
-        // Stop STT
-        handler.post { voiceInputManager.stopListening() }
-
         AgentStateRepository.globalState.appendLog("VOICE", "Heard: \"$command\"")
 
         scope.launch {
@@ -234,10 +190,9 @@ class TAVVoiceInteractionSession(context: Context) : VoiceInteractionSession(con
                 val appLabel = request.targetApp.substringAfterLast(".")
                 voiceState.setRouting(appLabel, request.task)
 
-                voiceState.transitionTo(VoiceListenerState.AGENT_LAUNCHED)
+                voiceState.transitionTo(VoiceListenerState.AGENT_RUNNING)
                 launchAgent(request)
                 
-                // Monitor agent completion before hiding the session completely (or hide immediately)
                 monitorAgentCompletion()
 
             } catch (e: Exception) {
@@ -265,17 +220,16 @@ class TAVVoiceInteractionSession(context: Context) : VoiceInteractionSession(con
     private fun monitorAgentCompletion() {
         scope.launch {
             AgentStateRepository.globalState.stateFlow.collect { agentState ->
-                if (voiceState.current.state == VoiceListenerState.AGENT_LAUNCHED && !agentState.isRunning) {
-                    
+                if (voiceState.current.state == VoiceListenerState.AGENT_RUNNING && !agentState.isRunning) {
                     if (agentState.status == AgentStatus.COMPLETED) {
                         AgentStateRepository.globalState.appendLog("VOICE", "✓ Task complete.")
+                        voiceState.transitionTo(VoiceListenerState.DONE)
                     } else if (agentState.status == AgentStatus.ERROR) {
                         AgentStateRepository.globalState.appendLog("VOICE", "✗ Task failed.")
+                        voiceState.transitionTo(VoiceListenerState.ERROR)
                     }
                     
-                    // Finish the session, yielding control back to TAVVoiceInteractionService
-                    // (which will automatically resume WAKE_LISTENING because we set it in onHide)
-                    hide()
+                    handler.postDelayed({ hide() }, 1000)
                     return@collect
                 }
             }

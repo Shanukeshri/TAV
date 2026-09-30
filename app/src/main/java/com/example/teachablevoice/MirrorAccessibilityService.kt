@@ -538,26 +538,30 @@ class MirrorAccessibilityService : AccessibilityService() {
                 val overlay = voiceOverlayManager ?: return@collectLatest
 
                 when (voiceState.state) {
-                    VoiceListenerState.STOPPED,
-                    VoiceListenerState.WAKE_LISTENING -> {
+                    VoiceListenerState.IDLE,
+                    VoiceListenerState.DONE -> {
                         // No overlay needed during wake listening or when stopped
                         overlay.hide()
                     }
-                    VoiceListenerState.COMMAND_LISTENING -> {
+                    VoiceListenerState.LISTENING -> {
                         overlay.showListening()
                         if (voiceState.partialText.isNotEmpty()) {
                             overlay.updatePartialText(voiceState.partialText)
                         }
                     }
+                    VoiceListenerState.TRANSCRIBING,
                     VoiceListenerState.PROCESSING -> {
                         overlay.showProcessing(voiceState.lastTranscription)
                     }
-                    VoiceListenerState.AGENT_LAUNCHED -> {
+                    VoiceListenerState.AGENT_RUNNING -> {
                         if (voiceState.routedApp.isNotEmpty()) {
                             overlay.showRouting(voiceState.routedApp, voiceState.routedTask)
                         }
                         // Hide voice overlay after brief delay — agent overlay takes over
                         overlay.hideAfterDelay(2000)
+                    }
+                    VoiceListenerState.ERROR -> {
+                        overlay.showError(voiceState.errorMessage)
                     }
                 }
 

@@ -131,7 +131,7 @@ fun MirrorApp() {
 
             // ── Voice Service Toggle Bar ──
             VoiceServiceBar(
-                isVoiceActive = voiceState.state != VoiceListenerState.STOPPED,
+                isVoiceActive = voiceState.state != VoiceListenerState.IDLE,
                 voiceState = voiceState.state,
                 hasAudioPermission = hasAudioPermission,
                 onToggleVoice = {
@@ -206,7 +206,7 @@ fun VoiceServiceBar(
     onToggleVoice: () -> Unit
 ) {
     val barColor = when {
-        isVoiceActive && voiceState == VoiceListenerState.COMMAND_LISTENING -> Color(0xFF66BB6A)
+        isVoiceActive && voiceState == VoiceListenerState.LISTENING -> Color(0xFF66BB6A)
         isVoiceActive && voiceState == VoiceListenerState.PROCESSING -> Color(0xFF448AFF)
         isVoiceActive -> AccentPurple
         else -> Color(0xFF2A2A45)
@@ -242,10 +242,10 @@ fun VoiceServiceBar(
             if (isVoiceActive) {
                 Text(
                     text = when (voiceState) {
-                        VoiceListenerState.WAKE_LISTENING -> "Waiting for wake phrase..."
-                        VoiceListenerState.COMMAND_LISTENING -> "Listening for command..."
-                        VoiceListenerState.PROCESSING -> "Processing..."
-                        VoiceListenerState.AGENT_LAUNCHED -> "Agent running..."
+                        VoiceListenerState.IDLE -> "Waiting for wake phrase..."
+                        VoiceListenerState.LISTENING -> "Listening for command..."
+                        VoiceListenerState.TRANSCRIBING, VoiceListenerState.PROCESSING -> "Processing..."
+                        VoiceListenerState.AGENT_RUNNING -> "Agent running..."
                         else -> ""
                     },
                     color = barColor,

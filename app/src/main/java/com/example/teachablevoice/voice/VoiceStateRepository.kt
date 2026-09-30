@@ -7,45 +7,20 @@ import kotlinx.coroutines.flow.update
 
 /**
  * Shared observable state for the voice system.
- *
- * This follows the same pattern as AgentStateRepository:
- * a singleton that both the VoiceForegroundService and
- * MirrorAccessibilityService can observe.
- *
- * Responsibilities:
- *   VoiceForegroundService → writes state (WAKE_LISTENING, COMMAND_LISTENING, etc.)
- *   MirrorAccessibilityService → reads state → shows/hides VoiceListeningOverlayManager
- *
- * This cleanly separates:
- *   - Microphone ownership (VoiceForegroundService)
- *   - Overlay ownership (MirrorAccessibilityService via TYPE_ACCESSIBILITY_OVERLAY)
  */
 
-/**
- * Voice listener state machine states.
- */
 enum class VoiceListenerState {
-    /** Not running. Voice service is stopped. */
-    STOPPED,
-
-    /** Listening only for wake phrase "Hey start listening". Non-wake speech ignored. */
-    WAKE_LISTENING,
-
-    /** Wake phrase detected. Capturing the actual user command. */
-    COMMAND_LISTENING,
-
-    /** Command captured. Routing through Gemini to resolve target app + goal. */
+    IDLE,
+    LISTENING,
+    TRANSCRIBING,
     PROCESSING,
-
-    /** Agent has been launched. Waiting for completion before returning to WAKE_LISTENING. */
-    AGENT_LAUNCHED
+    AGENT_RUNNING,
+    DONE,
+    ERROR
 }
 
-/**
- * Immutable snapshot of voice system state.
- */
 data class VoiceStateData(
-    val state: VoiceListenerState = VoiceListenerState.STOPPED,
+    val state: VoiceListenerState = VoiceListenerState.IDLE,
     val partialText: String = "",
     val lastTranscription: String = "",
     val routedApp: String = "",
@@ -54,9 +29,6 @@ data class VoiceStateData(
     val isServiceRunning: Boolean = false
 )
 
-/**
- * Mutable holder that emits VoiceStateData via StateFlow.
- */
 class VoiceState {
     private val _stateFlow = MutableStateFlow(VoiceStateData())
     val stateFlow: StateFlow<VoiceStateData> = _stateFlow.asStateFlow()
@@ -80,7 +52,7 @@ class VoiceState {
     }
 
     fun setError(message: String) {
-        _stateFlow.update { it.copy(state = VoiceListenerState.WAKE_LISTENING, errorMessage = message) }
+        _stateFlow.update { it.copy(state = VoiceListenerState.ERROR, errorMessage = message) }
     }
 
     fun setServiceRunning(running: Boolean) {
@@ -92,9 +64,6 @@ class VoiceState {
     }
 }
 
-/**
- * Singleton repository — same pattern as AgentStateRepository.
- */
 object VoiceStateRepository {
     val globalState = VoiceState()
 }

@@ -49,7 +49,7 @@ class TAVVoiceInteractionService : VoiceInteractionService() {
 
     private fun startWakeWordListening() {
         isActive = true
-        VoiceStateRepository.globalState.transitionTo(VoiceListenerState.WAKE_LISTENING)
+        VoiceStateRepository.globalState.transitionTo(VoiceListenerState.IDLE)
         
         voiceInputManager.setListener(object : VoiceInputListener {
             override fun onSpeechResult(text: String) {
@@ -84,7 +84,7 @@ class TAVVoiceInteractionService : VoiceInteractionService() {
 
     private fun stopWakeWordListening() {
         isActive = false
-        VoiceStateRepository.globalState.transitionTo(VoiceListenerState.STOPPED)
+        VoiceStateRepository.globalState.transitionTo(VoiceListenerState.IDLE)
         voiceInputManager.stopListening()
         handler.removeCallbacksAndMessages(null)
     }
