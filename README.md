@@ -1,137 +1,121 @@
-# Teachable Voice Automation (TAV) — Mirror UI
+# 🔮 Teachable Voice Automation (TAV) — Mirror UI
 
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.2.10-7F52FF.svg?logo=kotlin&logoColor=white)](https://kotlinlang.org/)
 [![Android](https://img.shields.io/badge/Android%20SDK-26%20..%2037-3DDC84.svg?logo=android&logoColor=white)](https://developer.android.com)
-[![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-BOM%202026.02.01-4285F4.svg?logo=jetpackcompose&logoColor=white)](https://developer.android.com/jetpack/compose)
-[![Google Gemini](https://img.shields.io/badge/Google%20Gemini-3.5%20Flash%20Lite%20%7C%20Live%20STT-8E75C4.svg?logo=google&logoColor=white)](https://ai.google.dev/)
-[![Architecture](https://img.shields.io/badge/Architecture-Clean%20%2F%20Autonomous%20Agent-blue.svg)](#architecture)
-[![NDK](https://img.shields.io/badge/Native-NDK%2025.1%20%7C%20C%2B%2B17-00599C.svg?logo=cplusplus&logoColor=white)](#native-on-device-inference-llamacpp)
+[![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285F4.svg?logo=jetpackcompose&logoColor=white)](https://developer.android.com/jetpack/compose)
+[![Local LLM](https://img.shields.io/badge/Local%20LLM-llama.cpp%20%7C%20GGUF-FF6F00.svg?logo=cplusplus&logoColor=white)](#on-device-llm-engine-llamacpp--jni)
+[![Offline STT](https://img.shields.io/badge/Speech%20to%20Text-Vosk%20(Offline)-green.svg)](#local-voice-interaction--vosk-stt)
+[![Privacy](https://img.shields.io/badge/Privacy-100%25%20On--Device-success.svg)](#overview)
 
-> **Teachable Voice Automation (TAV)** is an autonomous Android UI agent and remote application mirroring platform. It pairs Android's accessibility and voice interaction frameworks with Google Gemini models to inspect third-party apps, mirror their interfaces in real time, listen for natural speech commands, and autonomously execute complex multi-step user workflows directly on the device.
+> **TAV (Mirror UI)** is an open-source, privacy-first Android assistant and remote UI mirroring platform. It runs **100% on-device** using local language models (`llama.cpp`) and local speech recognition (`Vosk`) to mirror apps, listen for voice commands, and autonomously complete multi-step tasks across third-party applications—with zero cloud servers, zero API keys, and zero telemetry.
 
 ---
 
-## Table of Contents
+## 📑 Table of Contents
 
 - [Overview](#overview)
 - [System Architecture](#system-architecture)
 - [Key Features](#key-features)
-- [Deep Dive: Special Android Components](#deep-dive-special-android-components)
-- [Data Flow & Execution Pipelines](#data-flow--execution-pipelines)
-  - [1. End-to-End Voice-Driven Autonomous Execution](#1-end-to-end-voice-driven-autonomous-execution)
+- [On-Device LLM Engine (llama.cpp & JNI)](#on-device-llm-engine-llamacpp--jni)
+- [Local Voice Interaction & Vosk STT](#local-voice-interaction--vosk-stt)
+- [Deep Dive: Android Components](#deep-dive-android-components)
+- [Data Flow & Pipelines](#data-flow--pipelines)
+  - [1. Voice-Driven Autonomous Execution Flow](#1-voice-driven-autonomous-execution-flow)
   - [2. UI Extraction & Remote Mirroring Pipeline](#2-ui-extraction--remote-mirroring-pipeline)
   - [3. Touch Coordinate & Gesture Forwarding](#3-touch-coordinate--gesture-forwarding)
   - [4. Agent Reasoning, Loop Detection & Recovery](#4-agent-reasoning-loop-detection--recovery)
-- [Repository Structure](#repository-structure)
 - [Tech Stack & Dependencies](#tech-stack--dependencies)
 - [Android Configuration & Permissions](#android-configuration--permissions)
 - [Setup & Build Instructions](#setup--build-instructions)
-- [Known Limitations & Design Constraints](#known-limitations--design-constraints)
+- [Known Limitations & Notes](#known-limitations--notes)
 
 ---
 
 ## Overview
 
-Modern mobile assistants often stop at intent matching or opening deep links. **Teachable Voice Automation (TAV)** bridges the gap between natural language understanding and system-wide UI manipulation. It solves two challenging Android problems:
+Most mobile assistants rely on external cloud APIs that transmit private screen data and ambient audio off the device. **Teachable Voice Automation (TAV)** operates entirely on-device, offering a local, self-contained architecture for both UI mirroring and intelligent task automation:
 
-1. **Remote In-App UI Mirroring (`Mirror UI`)**: Using an `AccessibilityService` alongside Android 11+ display capture, TAV captures the live visual and structural hierarchy of third-party apps (e.g., Amazon, Zomato, Settings). Users can view and interact with these external apps directly from within TAV using either a pixel-accurate **Screenshot View** (with touch target overlays and coordinate translation) or a structured **Component Tree View** (with auto-extracted controls, scroll containers, and rich card summaries).
-2. **Autonomous Multi-Step Goal Execution (`Agent`)**: When given a high-level goal (via voice or text, such as *"Open Amazon and find 5 packets of milk"*), TAV converts spoken audio into text via WebSocket-streamed **Gemini Live STT**, routes the request to target package names, launches a dedicated foreground service, and runs an autonomous **Observe-Think-Act** loop powered by **Gemini 3.5 Flash Lite**. The agent evaluates live UI accessibility trees, generates validated JSON actions (`CLICK`, `INPUT`, `SCROLL`, `SWIPE`, `BACK`, `DONE`, `ASK`), detects dead ends/infinite loops, and drives the target app to completion while rendering a translucent non-intrusive status HUD on top of the screen.
+1. **🔮 Remote In-App UI Mirroring (`Mirror UI`)**: Using an Android [`MirrorAccessibilityService`](TAV-main/app/src/main/java/com/example/teachablevoice/MirrorAccessibilityService.kt) and hardware display capture, TAV inspects third-party apps (e.g., Amazon, Zomato, Settings) and mirrors them directly inside TAV. Users can view and interact with external interfaces through a pixel-accurate **Screenshot View** (with touch target overlays and coordinate translation) or a structured **Component Tree View** (with auto-extracted controls, scroll containers, and rich card summaries).
+2. **🤖 Autonomous On-Device Agent Automation (`Agent`)**: When given a high-level task (via local voice or text input, such as *"Open Amazon and find 5 packets of milk"*), TAV processes the command using **on-device Vosk speech recognition**, routes the request to target packages, launches a persistent foreground service, and runs an autonomous **Observe-Think-Act** loop powered by a **local quantized LLM ([`llama.cpp`](TAV-main/app/src/main/cpp/tav_llama_jni.cpp))**. The local model analyzes live UI hierarchies, emits validated JSON action commands (`CLICK`, `INPUT`, `SCROLL`, `SWIPE`, `BACK`, `DONE`, `ASK`), and drives the app to completion while rendering an unobtrusive status HUD on top of the screen.
 
 ---
 
 ## System Architecture
 
-The application is structured into decoupled domain packages ensuring clean separation of concerns:
-
-```
-com.example.teachablevoice
-├── (root)                  # Mirror UI, Accessibility Service, Tree Normalization, Main Activity
-├── agent                   # Autonomous Agent Controller, State, Loop Detection, Foreground Service, HUD
-├── bridge                  # Abstraction layer between Agent logic and Android Accessibility
-├── model                   # LLM backends (GeminiApiClient via REST, LlamaCppBackend via JNI)
-├── voice                   # VoiceInteractionService, Session, Gemini Live WebSocket STT, Wake Word
-└── ui.theme                # Jetpack Compose Dark/Light Material3 theme definitions
-```
-
-### High-Level Architectural Flow
+The project is structured into modular domain packages ensuring a clean separation between UI mirroring, accessibility bridge, on-device reasoning, and local voice interaction:
 
 ```mermaid
 flowchart TD
-    subgraph VoiceInput [Voice Subsystem]
-        UserVoice["User Voice Command"] --> Hotword["WakeWordManager ('Hey start listening')"]
-        Hotword --> VService["TAVVoiceInteractionService"]
-        VService --> VSession["TAVVoiceInteractionSession"]
-        VSession --> AudioRec["AudioCaptureManager (16kHz PCM)"]
-        AudioRec --> GeminiLive["GeminiLiveSttClient (WebSocket)"]
-        GeminiLive --> Router["AgentRequestRouter (Intent & App Resolution)"]
+    subgraph LocalVoice [1. Local Voice Input]
+        Mic[Microphone / AudioRecord] --> Hotword["WakeWordManager ('Hey start listening')"]
+        Hotword --> Vosk["Vosk Offline Speech-to-Text"]
+        Vosk --> Router["AgentRequestRouter (Local Intent & App Resolution)"]
     end
 
-    subgraph AgentSystem [Autonomous Agent Subsystem]
-        Router --> FgService["AgentForegroundService"]
-        FgService --> Controller["AgentController"]
-        Controller --> Prompt["buildPrompt(Goal, UiState, History)"]
-        Prompt --> GeminiAPI["GeminiApiClient (gemini-3.5-flash-lite)"]
-        GeminiAPI --> Parser["ActionParser & ActionValidator"]
-        Parser --> Loop["LoopDetector & RecoveryManager"]
+    subgraph OnDeviceAI [2. On-Device Reasoning]
+        Router --> Service["AgentForegroundService"]
+        Service --> Controller["AgentController (Observe-Think-Act)"]
+        Controller --> Llama["LlamaCppBackend (llama.cpp JNI / GGUF)"]
+        Llama --> Validator["ActionParser & ActionValidator"]
+        Validator --> LoopCheck["LoopDetector & RecoveryManager"]
     end
 
-    subgraph AndroidBridge [Automation & Accessibility Bridge]
-        Loop --> Bridge["AutomationBridgeImpl"]
+    subgraph DeviceControl [3. Accessibility & Automation]
+        LoopCheck --> Bridge["AutomationBridgeImpl"]
         Bridge --> Interaction["MirrorInteractionController"]
-        Interaction --> AccService["MirrorAccessibilityService"]
-        AccService --> Gestures["performAction() / dispatchGesture()"]
-        Gestures --> TargetApp["Target Third-Party App (e.g. Amazon, Settings)"]
+        Interaction --> Acc["MirrorAccessibilityService"]
+        Acc --> TargetApp["Target Third-Party App (Amazon, Settings, etc.)"]
     end
 
-    subgraph MirrorSystem [Mirror & Feedback Subsystem]
-        TargetApp --> AccEvent["AccessibilityEvent & WindowContent"]
-        AccEvent --> Extractor["UIExtractor & UINormalizer"]
-        Extractor --> Registry["AccessibilityNodeRegistry"]
-        Extractor --> Repo["UiMirrorRepository"]
-        AccService -. Screenshot .-> Repo
-        Repo --> ComposeUI["Jetpack Compose UI (MirrorScreen / AgentDebugScreen)"]
-        AccService --> Overlays["AgentOverlayManager & VoiceListeningOverlayManager (TYPE_ACCESSIBILITY_OVERLAY)"]
+    subgraph MirrorFeedback [4. Live Mirror & Feedback]
+        TargetApp --> Snapshot["UIExtractor & Display Screenshot"]
+        Snapshot --> Repository["UiMirrorRepository"]
+        Repository --> UI["Jetpack Compose UI (MirrorScreen / AgentDebugScreen)"]
+        Acc --> Overlays["AgentOverlayManager & VoiceListeningOverlayManager"]
     end
 ```
+
+### The 4 Architectural Layers
+
+| Layer | Key Components | What It Does |
+|---|---|---|
+| **Voice & STT** | [`WakeWordManager`](TAV-main/app/src/main/java/com/example/teachablevoice/voice/WakeWordManager.kt)<br>[`VoiceInputManager`](TAV-main/app/src/main/java/com/example/teachablevoice/voice/VoiceInputManager.kt)<br>[`TAVVoiceInteractionService`](TAV-main/app/src/main/java/com/example/teachablevoice/voice/TAVVoiceInteractionService.kt) | Captures 16kHz audio, detects `"Hey start listening"` locally, and transcribes speech using Vosk. |
+| **Agent Reasoning** | [`AgentController`](TAV-main/app/src/main/java/com/example/teachablevoice/agent/AgentController.kt)<br>[`LlamaCppBackend`](TAV-main/app/src/main/java/com/example/teachablevoice/model/LlamaCppBackend.kt)<br>[`ActionParser`](TAV-main/app/src/main/java/com/example/teachablevoice/agent/ActionParser.kt)<br>[`LoopDetector`](TAV-main/app/src/main/java/com/example/teachablevoice/agent/LoopDetector.kt) | Builds prompts from UI states, generates JSON actions via local GGUF models, validates clicks, and avoids loops. |
+| **Android Automation** | [`AutomationBridgeImpl`](TAV-main/app/src/main/java/com/example/teachablevoice/bridge/AutomationBridgeImpl.kt)<br>[`MirrorAccessibilityService`](TAV-main/app/src/main/java/com/example/teachablevoice/MirrorAccessibilityService.kt)<br>[`MirrorInteractionController`](TAV-main/app/src/main/java/com/example/teachablevoice/MirrorInteractionController.kt) | Dispatches accessibility gestures, coordinates taps, scrolls, inputs text, and navigates back/home. |
+| **Mirror UI & HUD** | [`MirrorRenderer`](TAV-main/app/src/main/java/com/example/teachablevoice/MirrorRenderer.kt)<br>[`AgentOverlayManager`](TAV-main/app/src/main/java/com/example/teachablevoice/agent/AgentOverlayManager.kt)<br>[`VoiceListeningOverlayManager`](TAV-main/app/src/main/java/com/example/teachablevoice/voice/VoiceListeningOverlayManager.kt) | Renders the live mirrored interface in Jetpack Compose and floats status overlays over active apps. |
 
 ---
 
 ## Key Features
 
 ### 1. Dual-Mode Remote App Mirroring
-- **Screenshot Mirror View**:
-  - Leverages Android 11+ (`Build.VERSION_CODES.R`) `AccessibilityService.takeScreenshot()` to capture hardware bitmaps from the primary display.
+- **Screenshot Mirror View** ([`ScreenshotMirrorView`](TAV-main/app/src/main/java/com/example/teachablevoice/MirrorRenderer.kt)):
+  - Leverages Android 11+ (`Build.VERSION_CODES.R`) `AccessibilityService.takeScreenshot()` to capture hardware display buffers from the primary display.
   - Scales bitmaps dynamically to screen bounds and projects interactive bounding boxes for clickable, editable, and scrollable nodes using Compose `Canvas`.
   - Translates pointer gestures on the screenshot canvas into real screen coordinate taps, long presses, and swipes dispatched to the target app via `AccessibilityService.dispatchGesture()`.
-- **Tree Mirror View**:
-  - Recursively traverses accessibility node hierarchies up to 50 levels deep.
-  - Normalizes vendor-specific view classes into universal `NodeType` elements (`Button`, `TextField`, `Checkbox`, `Toggle`, `Dropdown`, `Image`, `List`, `Card`, `ScrollableContainer`, `Text`).
+- **Tree Mirror View** ([`TreeMirrorView`](TAV-main/app/src/main/java/com/example/teachablevoice/MirrorRenderer.kt)):
+  - Recursively traverses accessibility node hierarchies up to 50 levels deep using [`UIExtractor`](TAV-main/app/src/main/java/com/example/teachablevoice/UIExtractor.kt).
+  - Normalizes vendor-specific view classes into universal [`NodeType`](TAV-main/app/src/main/java/com/example/teachablevoice/NormalizedNode.kt) elements (`Button`, `TextField`, `Checkbox`, `Toggle`, `Dropdown`, `Image`, `List`, `Card`, `ScrollableContainer`, `Text`) via [`UINormalizer`](TAV-main/app/src/main/java/com/example/teachablevoice/UINormalizer.kt).
   - Preprocesses UI trees into flattened, deduplicated components with breadcrumb text extraction for complex nested layouts (e.g., restaurant cards in food delivery apps).
   - Displays interactive scroll controllers with upward/downward scroll action triggers.
 
-### 2. In-Mirror Text Input (`MirrorTextInputDialog`)
+### 2. In-Mirror Text Input ([`MirrorTextInputDialog`](TAV-main/app/src/main/java/com/example/teachablevoice/MainActivity.kt))
 - When tapping an editable input field inside the mirrored screenshot view, TAV does not switch apps or trigger an IME in the background app.
-- Instead, it detects `node.editable`, reads existing text and hints, and opens a modal Compose dialog (`MirrorTextInputDialog`).
+- It detects `node.editable`, reads existing text and hints, and opens a modal Compose dialog (`MirrorTextInputDialog`).
 - Submitted text is dispatched directly through `AccessibilityNodeInfo.ACTION_SET_TEXT` with `Bundle` arguments without invoking `ACTION_FOCUS` (which would otherwise force Android to bring the third-party app to the foreground).
 
-### 3. System-Integrated Digital Assistant
-- Registers as an official Android `VoiceInteractionService` and `VoiceInteractionSessionService`.
+### 3. Local Voice Interaction & System Digital Assistant
+- Registers as an official Android [`TAVVoiceInteractionService`](TAV-main/app/src/main/java/com/example/teachablevoice/voice/TAVVoiceInteractionService.kt) and [`TAVVoiceInteractionSessionService`](TAV-main/app/src/main/java/com/example/teachablevoice/voice/TAVVoiceInteractionSessionService.kt).
 - Selectable as the default **Digital Assistant App** under Android settings (`Settings.ACTION_VOICE_INPUT_SETTINGS`).
-- System-managed lifecycle prevents process kills and background-start exceptions without requiring persistent notification clutter.
+- Uses **local on-device speech recognition** through Vosk, providing low-latency, private transcription without external network requests.
+- Integrated debouncing with silence detection and listening timeouts.
 
-### 4. Streaming Voice Recognition (Gemini Live STT)
-- Real-time PCM audio capture at 16kHz, 16-bit mono using `AudioRecord`.
-- Bidirectional streaming over WebSockets to Google's Gemini Live API (`wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent`).
-- Sends Base64-encoded PCM frames inside `realtimeInput.audio` and receives real-time partial and final transcripts.
-- Integrated debouncing with 2-second silence detection and 7-second hard timeouts.
-- Fallback voice input support via platform `SpeechRecognizer` (`VoiceInputManager`).
-
-### 5. Local Wake-Word Engine (`WakeWordManager`)
-- Stage A lightweight hotword detection engine trained on `"Hey start listening"`.
+### 4. Local Wake-Word Engine ([`WakeWordManager`](TAV-main/app/src/main/java/com/example/teachablevoice/voice/WakeWordManager.kt))
+- Lightweight on-device hotword detection engine tuned to `"Hey start listening"`.
 - Uses fuzzy multi-keyword threshold matching (`hey`, `start`, `listening`) to tolerate pronunciation variations and interim STT outputs.
-- Completely local processing—the wake phrase is never transmitted to cloud LLMs.
+- Completely local processing—the wake phrase is detected on-device before any command parsing begins.
 
-### 6. Natural Language Request Router (`AgentRequestRouter`)
+### 5. Natural Language Request Router ([`AgentRequestRouter`](TAV-main/app/src/main/java/com/example/teachablevoice/voice/AgentRequestRouter.kt))
 - Transforms unstructured voice commands into structured JSON intent objects before triggering any UI interaction:
   ```json
   {
@@ -141,101 +125,151 @@ flowchart TD
     "parameters": { "quantity": 5, "item": "milk" }
   }
   ```
-- Resolves human-readable app names to installed package names using `AppResolver`, semantic category fallbacks (e.g. "message" $\to$ SMS app, "dial" $\to$ phone app), and a dictionary of known popular applications.
+- Resolves human-readable app names to installed package names using [`AppResolver`](TAV-main/app/src/main/java/com/example/teachablevoice/agent/AppResolver.kt), semantic category fallbacks (e.g. "message" $\to$ SMS app, "dial" $\to$ phone app), and a dictionary of known popular applications.
 
-### 7. Autonomous Agent Controller (`AgentController`)
+### 6. Autonomous On-Device Agent Loop ([`AgentController`](TAV-main/app/src/main/java/com/example/teachablevoice/agent/AgentController.kt))
 - **Observe-Think-Act Cycle**:
   1. Launches target application and pauses for UI settling.
-  2. Extracts sanitized interactive elements (`UiElement`), filtering out decorative and non-interactive views.
+  2. Extracts sanitized interactive elements ([`UiElement`](TAV-main/app/src/main/java/com/example/teachablevoice/agent/UiState.kt)), filtering out decorative and non-interactive views.
   3. Computes a stable screen state `fingerprint` from visible element IDs and roles.
   4. Formulates a structured system prompt containing current app package, UI fingerprint, interactive elements, recent actions, and prior failed attempts.
-  5. Queries **Gemini 3.5 Flash Lite** with `responseMimeType = "application/json"`.
-  6. Parses response via `ActionParser` into one of 13 supported `ActionType` commands:
+  5. Queries the **local LLM backend ([`LlamaCppBackend`](TAV-main/app/src/main/java/com/example/teachablevoice/model/LlamaCppBackend.kt))** running on device.
+  6. Parses response via [`ActionParser`](TAV-main/app/src/main/java/com/example/teachablevoice/agent/ActionParser.kt) into one of 13 supported [`ActionType`](TAV-main/app/src/main/java/com/example/teachablevoice/agent/AgentAction.kt) commands:
      - `OPEN_APP`, `CLICK`, `LONG_CLICK`, `INPUT`, `SCROLL`, `SWIPE`, `BACK`, `HOME`, `RECENTS`, `NOTIFICATIONS`, `WAIT`, `DONE`, `ASK`.
-  7. Validates target nodes against the current screen hierarchy (`ActionValidator`).
-  8. Executes the action via `AutomationBridgeImpl` and waits for UI state transition.
+  7. Validates target nodes against the current screen hierarchy ([`ActionValidator`](TAV-main/app/src/main/java/com/example/teachablevoice/agent/ActionValidator.kt)).
+  8. Executes the action via [`AutomationBridgeImpl`](TAV-main/app/src/main/java/com/example/teachablevoice/bridge/AutomationBridgeImpl.kt) and waits for UI state transition.
   9. Evaluates state change (`TransitionResult.SUCCESS` vs. `NO_STATE_CHANGE`).
   10. Concludes immediately when the model outputs `{"action": "DONE"}` or requires clarification via `{"action": "ASK"}`.
 
-### 8. Loop Detection & Heuristic Recovery
-- **`LoopDetector`**: Monitors sliding transition histories. Detects state oscillations ($A \to B \to A \to B$) and repeated non-functional actions ($2\times \text{NO\_STATE\_CHANGE}$).
-- **`RecoveryManager`**: Intervenes when an agent gets stuck by issuing automatic navigation recovery (`GLOBAL_ACTION_BACK`) up to 5 times before failing gracefully.
+### 7. Loop Detection & Heuristic Recovery
+- **[`LoopDetector`](TAV-main/app/src/main/java/com/example/teachablevoice/agent/LoopDetector.kt)**: Monitors sliding transition histories. Detects state oscillations ($A \to B \to A \to B$) and repeated non-functional actions ($2\times \text{NO\_STATE\_CHANGE}$).
+- **[`RecoveryManager`](TAV-main/app/src/main/java/com/example/teachablevoice/agent/RecoveryManager.kt)**: Intervenes when an agent gets stuck by issuing automatic navigation recovery (`GLOBAL_ACTION_BACK`) up to 5 times before failing gracefully.
 
-### 9. Zero-Permission Translucent Overlays
-- Android normally requires the dangerous `SYSTEM_ALERT_WINDOW` permission to draw floating overlays.
-- TAV leverages `WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY` through `MirrorAccessibilityService`. This allows:
-  - **`VoiceListeningOverlayManager`**: Slides down from the top to show microphone status and live transcription.
-  - **`AgentOverlayManager`**: Floats at the bottom above target applications showing real-time step counts, pulsing progress indicators, and an immediate emergency stop (`■ STOP`) button.
-
-### 10. Local On-Device Inference (`LlamaCppBackend`)
-- Retains native C++ JNI bindings (`tav_llama_jni.cpp`) compiled with CMake and linked to `llama.cpp`.
-- Capable of running quantized GGUF models (e.g., `LittleLamb-290M.gguf`) locally on ARM64 devices with greedy sampling and early JSON closure detection.
+### 8. Zero-Permission Translucent Overlays
+- Avoids requiring the invasive `SYSTEM_ALERT_WINDOW` permission by using `WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY` through [`MirrorAccessibilityService`](TAV-main/app/src/main/java/com/example/teachablevoice/MirrorAccessibilityService.kt).
+- **[`VoiceListeningOverlayManager`](TAV-main/app/src/main/java/com/example/teachablevoice/voice/VoiceListeningOverlayManager.kt)**: Slides down from the top to show microphone status and live transcription.
+- **[`AgentOverlayManager`](TAV-main/app/src/main/java/com/example/teachablevoice/agent/AgentOverlayManager.kt)**: Floats at the bottom above target applications showing real-time step counts, pulsing progress indicators, and an immediate emergency stop (`■ STOP`) button.
 
 ---
 
-## Deep Dive: Special Android Components
+## On-Device LLM Engine (llama.cpp & JNI)
 
-| Android Component | Class / File | Purpose & Implementation Details |
+TAV includes a dedicated C++ and JNI native layer enabling local inference directly on mobile hardware without external servers.
+
+### Native JNI Bridge ([`tav_llama_jni.cpp`](TAV-main/app/src/main/cpp/tav_llama_jni.cpp))
+- **Engine**: Embedded `llama.cpp` compiled via CMake ([`CMakeLists.txt`](TAV-main/app/src/main/cpp/CMakeLists.txt)) as `libtav_llama.so`.
+- **Target ABI**: Optimized for 64-bit ARM (`arm64-v8a`) with C++17.
+- **Memory & Context**:
+  - CPU-only execution on Android (`n_gpu_layers = 0`).
+  - Batch size: `n_batch = 1024`.
+  - Deterministic greedy sampling (`llama_sampler_init_greedy()`) for maximum reproducibility and speed.
+  - Automatic KV-cache clearing (`llama_memory_clear`) before each generation step.
+  - Chunked prompt evaluation (`llama_decode`) to minimize peak memory pressure.
+  - Fast JSON stop heuristic: terminates generation immediately upon encountering the closing brace `}`.
+
+### Kotlin Backend Wrapper ([`LlamaCppBackend.kt`](TAV-main/app/src/main/java/com/example/teachablevoice/model/LlamaCppBackend.kt))
+- Implements the common [`ModelBackend`](TAV-main/app/src/main/java/com/example/teachablevoice/model/ModelBackend.kt) interface:
+  ```kotlin
+  interface ModelBackend {
+      suspend fun load()
+      suspend fun generate(prompt: String): String
+      suspend fun unload()
+      fun isLoaded(): Boolean
+  }
+  ```
+- Manages bundled model assets (such as `LittleLamb-290M.gguf` or compatible quantized GGUF models), copying them from APK assets to `context.filesDir` for native memory mapping.
+- Dispatches prompt generation asynchronously using Kotlin coroutines on `Dispatchers.Default`.
+
+---
+
+## Local Voice Interaction & Vosk STT
+
+### 1. On-Device Speech Recognition ([`VoiceInputManager`](TAV-main/app/src/main/java/com/example/teachablevoice/voice/VoiceInputManager.kt))
+- Integrates offline speech-to-text recognition using **Vosk**.
+- Operates entirely on the client device using local acoustic and language models.
+- Configured with:
+  - Streaming audio recognition from `AudioRecord` at 16kHz PCM.
+  - Live partial results for instant feedback in the floating overlay.
+  - Silence debouncing to detect the end of user utterances automatically.
+- Forwards lifecycle events through [`VoiceInputListener`](TAV-main/app/src/main/java/com/example/teachablevoice/voice/VoiceInputListener.kt).
+
+### 2. Audio Capture ([`AudioCaptureManager`](TAV-main/app/src/main/java/com/example/teachablevoice/voice/AudioCaptureManager.kt))
+- Direct hardware access using `AudioRecord`:
+  - Sample rate: `16,000 Hz`
+  - Channel config: `AudioFormat.CHANNEL_IN_MONO`
+  - Format: `AudioFormat.ENCODING_PCM_16BIT`
+- Streams PCM buffers asynchronously via coroutines on `Dispatchers.IO` for local processing and low-overhead audio pipelines.
+
+### 3. Local Wake-Word Detection ([`WakeWordManager`](TAV-main/app/src/main/java/com/example/teachablevoice/voice/WakeWordManager.kt))
+- Constantly evaluates incoming speech text for the wake phrase `"Hey start listening"`.
+- Evaluates keywords (`hey`, `start`, `listening`) with a 66% threshold (2 out of 3 keywords match).
+- The wake phrase is handled purely as a local control signal and is never routed to the agent loop.
+
+---
+
+## Deep Dive: Android Components
+
+| Android Component | Source File | Purpose & Implementation Details |
 |---|---|---|
-| **Accessibility Service** | `MirrorAccessibilityService.kt`<br>`accessibility_service_config.xml` | Core automation spine. Subscribes to `typeWindowStateChanged`, `typeWindowContentChanged`, `typeViewScrolled`. Extracts root views across multi-window environments (`findBestRootNode`), executes accessibility actions (`ACTION_CLICK`, `ACTION_SET_TEXT`, `ACTION_SCROLL_FORWARD`), captures display screenshots, and hosts accessibility overlays. |
-| **Voice Interaction Service** | `TAVVoiceInteractionService.kt`<br>`voice_interaction_service.xml` | System voice service integrating with Android's voice assistant architecture. Configured with `sessionService`, `recognitionService`, and `supportsAssist="true"`. |
-| **Voice Interaction Session** | `TAVVoiceInteractionSession.kt`<br>`TAVVoiceInteractionSessionService.kt` | Manages active voice interaction window. Coordinates raw microphone recording, Gemini Live WebSocket connections, and transitions to the agent pipeline. |
-| **Foreground Service** | `AgentForegroundService.kt` | Keeps the background execution thread alive while the user is inside a target application. Declares `android:foregroundServiceType="specialUse"` and maintains a persistent notification on `agent_channel`. |
-| **Accessibility Overlay** | `AgentOverlayManager.kt`<br>`VoiceListeningOverlayManager.kt` | Creates programmatic, non-XML layouts added directly to `WindowManager` with `TYPE_ACCESSIBILITY_OVERLAY`. Allows drawing interactive UI above other apps without `SYSTEM_ALERT_WINDOW`. |
-| **Audio Capture** | `AudioCaptureManager.kt` | Direct hardware capture via `AudioRecord(MediaRecorder.AudioSource.MIC, 16000, CHANNEL_IN_MONO, ENCODING_PCM_16BIT)`. Streams audio buffers asynchronously using coroutines on `Dispatchers.IO`. |
-| **Platform Speech Recognizer** | `VoiceInputManager.kt` | Wraps `android.speech.SpeechRecognizer` with `RecognizerIntent.ACTION_RECOGNIZE_SPEECH` for partial and final result handling as an alternative/wake-listener STT. |
-| **Gesture Injection** | `MirrorAccessibilityService.kt` | Uses `dispatchGesture()` with `GestureDescription.StrokeDescription` to inject programmatic path taps and swipe gestures at absolute screen coordinates. |
-| **Native C++ / JNI** | `CMakeLists.txt`<br>`tav_llama_jni.cpp`<br>`LlamaCppBackend.kt` | Native integration with `llama.cpp` using NDK 25, C++17, and ARM64-v8a ABI filters. Handles model loading from internal storage, tokenization, KV cache clearing, and token generation. |
-| **Jetpack Compose UI** | `MainActivity.kt`<br>`MirrorRenderer.kt`<br>`AppLauncherScreen.kt`<br>`AgentDebugScreen.kt` | Modern declarative UI with single-activity navigation (`Mirror`, `Apps`, `Model`, `Agent`), custom canvas rendering, and animated state transitions. |
+| **Accessibility Service** | [`MirrorAccessibilityService.kt`](TAV-main/app/src/main/java/com/example/teachablevoice/MirrorAccessibilityService.kt)<br>[`accessibility_service_config.xml`](TAV-main/app/src/main/res/xml/accessibility_service_config.xml) | Core automation spine. Subscribes to window and content changes. Extracts root views across multi-window environments (`findBestRootNode`), executes actions (`ACTION_CLICK`, `ACTION_SET_TEXT`, `ACTION_SCROLL_FORWARD`), captures display screenshots, and hosts accessibility overlays. |
+| **Voice Interaction Service** | [`TAVVoiceInteractionService.kt`](TAV-main/app/src/main/java/com/example/teachablevoice/voice/TAVVoiceInteractionService.kt)<br>[`voice_interaction_service.xml`](TAV-main/app/src/main/res/xml/voice_interaction_service.xml) | System assistant service integrating with Android's voice assistant architecture. Configured with `sessionService`, `recognitionService`, and `supportsAssist="true"`. |
+| **Voice Interaction Session** | [`TAVVoiceInteractionSession.kt`](TAV-main/app/src/main/java/com/example/teachablevoice/voice/TAVVoiceInteractionSession.kt)<br>[`TAVVoiceInteractionSessionService.kt`](TAV-main/app/src/main/java/com/example/teachablevoice/voice/TAVVoiceInteractionSessionService.kt) | Manages active voice interaction window. Coordinates microphone recording, local Vosk STT, and transitions to the agent automation pipeline. |
+| **Foreground Service** | [`AgentForegroundService.kt`](TAV-main/app/src/main/java/com/example/teachablevoice/agent/AgentForegroundService.kt) | Keeps the background execution thread alive while the user is inside a target application. Declares `android:foregroundServiceType="specialUse"` and maintains an ongoing notification on `agent_channel`. |
+| **Accessibility Overlay** | [`AgentOverlayManager.kt`](TAV-main/app/src/main/java/com/example/teachablevoice/agent/AgentOverlayManager.kt)<br>[`VoiceListeningOverlayManager.kt`](TAV-main/app/src/main/java/com/example/teachablevoice/voice/VoiceListeningOverlayManager.kt) | Creates programmatic layouts added directly to `WindowManager` with `TYPE_ACCESSIBILITY_OVERLAY`. Allows drawing interactive UI above other apps without `SYSTEM_ALERT_WINDOW`. |
+| **Local Speech Recognizer** | [`VoiceInputManager.kt`](TAV-main/app/src/main/java/com/example/teachablevoice/voice/VoiceInputManager.kt) | Manages local speech-to-text with partial transcription feedback using on-device models. |
+| **Gesture Injection** | [`MirrorAccessibilityService.kt`](TAV-main/app/src/main/java/com/example/teachablevoice/MirrorAccessibilityService.kt) | Uses `dispatchGesture()` with `GestureDescription.StrokeDescription` to inject programmatic path taps and swipe gestures at absolute screen coordinates. |
+| **Native C++ / JNI** | [`CMakeLists.txt`](TAV-main/app/src/main/cpp/CMakeLists.txt)<br>[`tav_llama_jni.cpp`](TAV-main/app/src/main/cpp/tav_llama_jni.cpp)<br>[`LlamaCppBackend.kt`](TAV-main/app/src/main/java/com/example/teachablevoice/model/LlamaCppBackend.kt) | Native integration with `llama.cpp` using NDK 25, C++17, and ARM64-v8a ABI filters. Handles model loading from internal storage, tokenization, KV cache clearing, and token generation. |
+| **Jetpack Compose UI** | [`MainActivity.kt`](TAV-main/app/src/main/java/com/example/teachablevoice/MainActivity.kt)<br>[`MirrorRenderer.kt`](TAV-main/app/src/main/java/com/example/teachablevoice/MirrorRenderer.kt)<br>[`AppLauncherScreen.kt`](TAV-main/app/src/main/java/com/example/teachablevoice/AppLauncherScreen.kt)<br>[`AgentDebugScreen.kt`](TAV-main/app/src/main/java/com/example/teachablevoice/agent/AgentDebugScreen.kt) | Modern declarative UI with single-activity navigation (`Mirror`, `Apps`, `Model`, `Agent`), custom canvas rendering, and animated state transitions. |
 
 ---
 
-## Data Flow & Execution Pipelines
+## Data Flow & Pipelines
 
-### 1. End-to-End Voice-Driven Autonomous Execution
+### 1. Voice-Driven Autonomous Execution Flow
 
 ```mermaid
 sequenceDiagram
     autonumber
     actor User
-    participant Mic as AudioRecord / SpeechRecognizer
+    participant Mic as AudioRecord / Microphone
     participant Wake as WakeWordManager
     participant Session as TAVVoiceInteractionSession
-    participant LiveSTT as Gemini Live API (WebSocket)
+    participant LocalSTT as Vosk (Local STT)
     participant Router as AgentRequestRouter
     participant FgService as AgentForegroundService
     participant Agent as AgentController
-    participant Gemini as Gemini 3.5 Flash Lite (REST)
+    participant LocalLLM as LlamaCppBackend (llama.cpp)
     participant Bridge as AutomationBridgeImpl
     participant Acc as MirrorAccessibilityService
     participant Target as Target Third-Party App
 
     User->>Mic: "Hey start listening, open Amazon and find milk"
-    Mic->>Wake: Streamed speech text
+    Mic->>LocalSTT: 16kHz PCM stream
+    LocalSTT->>Wake: Streamed speech text
     Wake->>Session: Wake phrase detected ("Hey start listening")
-    Session->>LiveSTT: Stream 16kHz PCM audio
-    LiveSTT-->>Session: Final Transcript: "open Amazon and find milk"
+    Session->>LocalSTT: Transcribe user command locally
+    LocalSTT-->>Session: Final Transcript: "open Amazon and find milk"
     Session->>Router: route("open Amazon and find milk")
-    Router->>Gemini: Intent classification prompt
-    Gemini-->>Router: {"intent":"AUTOMATE","target_app":"Amazon","task":"find milk"}
+    Router->>LocalLLM: Local intent classification prompt
+    LocalLLM-->>Router: {"intent":"AUTOMATE","target_app":"Amazon","task":"find milk"}
     Router->>FgService: Start Foreground Service (task, package)
     FgService->>Agent: execute(Goal("in.amazon.mShop...", "find milk"))
     
     rect rgb(25, 25, 45)
-        note right of Agent: Autonomous Execution Loop
+        note right of Agent: Autonomous Execution Loop (100% On-Device)
         Agent->>Bridge: openApp("in.amazon.mShop...")
         Bridge->>Target: launchApp()
         Target-->>Acc: AccessibilityEvents
         Acc-->>Agent: UiState (elements, fingerprint)
-        Agent->>Gemini: Prompt with current screen & goal
-        Gemini-->>Agent: {"action":"CLICK", "element_id":"node_14"}
+        Agent->>LocalLLM: Prompt with current screen & goal
+        LocalLLM-->>Agent: {"action":"CLICK", "element_id":"node_14"}
         Agent->>Bridge: click("node_14")
         Bridge->>Acc: performAction(ACTION_CLICK)
         Acc->>Target: Click event
         Target-->>Acc: UI updates
         Acc-->>Agent: New UiState
-        Agent->>Gemini: Next prompt...
-        Gemini-->>Agent: {"action":"DONE"}
+        Agent->>LocalLLM: Next prompt...
+        LocalLLM-->>Agent: {"action":"DONE"}
     end
     Agent->>FgService: Task completed
     FgService-->>User: Notification & HUD update ("Done ✓")
@@ -263,9 +297,9 @@ When interacting through the **Screenshot Mirror**:
 1. User taps or drags on the Compose `Image` showing the mirrored bitmap.
 2. `detectTapGestures` calculates screen scale factors:
    $$\text{scaleX} = \frac{\text{screenshot.width}}{\text{view.width}}, \quad \text{scaleY} = \frac{\text{screenshot.height}}{\text{view.height}}$$
-3. `MirrorInteractionController.requestCoordinateTap(realX, realY)` emits a coordinate command.
-4. `MirrorAccessibilityService` searches the normalized tree for the deepest interactive node containing $(x, y)$:
-   - **Case A (Editable Node)**: Opens `MirrorTextInputDialog` locally in TAV. Text is forwarded directly via `ACTION_SET_TEXT`.
+3. [`MirrorInteractionController.requestCoordinateTap(realX, realY)`](TAV-main/app/src/main/java/com/example/teachablevoice/MirrorInteractionController.kt) emits a coordinate command.
+4. [`MirrorAccessibilityService`](TAV-main/app/src/main/java/com/example/teachablevoice/MirrorAccessibilityService.kt) searches the normalized tree for the deepest interactive node containing $(x, y)$:
+   - **Case A (Editable Node)**: Opens [`MirrorTextInputDialog`](TAV-main/app/src/main/java/com/example/teachablevoice/MainActivity.kt) locally in TAV. Text is forwarded directly via `ACTION_SET_TEXT`.
    - **Case B (Clickable Node)**: Calls `node.performAction(AccessibilityNodeInfo.ACTION_CLICK)`.
    - **Case C (No Accessibility Node / Canvas View)**: Fallback to `dispatchGesture()` with a 50ms tap path at $(x, y)$.
 
@@ -276,8 +310,8 @@ flowchart TD
     Start([Receive Goal]) --> Launch[Launch Target App]
     Launch --> WaitUI[Wait for UI Settle]
     WaitUI --> Extract[Extract UiState & Fingerprint]
-    Extract --> PromptGen[Build Gemini ReAct Prompt]
-    PromptGen --> CallModel[Call Gemini 3.5 Flash Lite]
+    Extract --> PromptGen[Build ReAct Prompt]
+    PromptGen --> CallModel[Call Local LLM via llama.cpp]
     CallModel --> Parse[ActionParser.parse]
     Parse --> Validate{ActionValidator.isValid?}
     
@@ -304,96 +338,6 @@ flowchart TD
 
 ---
 
-## Repository Structure
-
-```text
-TeachableVoiceAutomation/
-├── gradle/
-│   ├── wrapper/
-│   │   ├── gradle-wrapper.jar
-│   │   └── gradle-wrapper.properties         # Gradle 9.x distribution
-│   ├── gradle-daemon-jvm.properties
-│   └── libs.versions.toml                     # Version catalog (AGP, Compose, Kotlin, Lifecycle)
-├── app/
-│   ├── src/
-│   │   ├── main/
-│   │   │   ├── cpp/
-│   │   │   │   ├── CMakeLists.txt             # Native build configuration for llama.cpp
-│   │   │   │   └── tav_llama_jni.cpp          # JNI bridge: loadNative, generateNative, unloadNative
-│   │   │   ├── java/com/example/teachablevoice/
-│   │   │   │   ├── AccessibilityNodeRegistry.kt  # Thread-safe node ID to AccessibilityNodeInfo cache
-│   │   │   │   ├── AppLauncherScreen.kt       # Apps tab: installed launcher query & launcher UI
-│   │   │   │   ├── MainActivity.kt            # Single activity host, Compose tabs & voice status bar
-│   │   │   │   ├── MirrorAccessibilityService.kt # Accessibility core, event interceptor & gesture dispatcher
-│   │   │   │   ├── MirrorInteractionController.kt# Event bus for clicks, gestures, swipes, and text input
-│   │   │   │   ├── MirrorRenderer.kt          # Compose UI for Screenshot and Tree mirror rendering
-│   │   │   │   ├── ModelChatScreen.kt         # Model tab: interactive prompt/response testing UI
-│   │   │   │   ├── NormalizedNode.kt          # Domain UI node data model and NodeType enum
-│   │   │   │   ├── UIExtractor.kt             # Recursive traversal of AccessibilityNodeInfo into NormalizedNode
-│   │   │   │   ├── UiMirrorRepository.kt      # StateFlow holder for UI snapshots and screenshots
-│   │   │   │   ├── UINormalizer.kt            # View class to NodeType mapping heuristic
-│   │   │   │   ├── UiSnapshot.kt              # Immutable container for mirrored UI hierarchy
-│   │   │   │   ├── agent/
-│   │   │   │   │   ├── ActionParser.kt        # JSON response parser for agent actions
-│   │   │   │   │   ├── ActionValidator.kt     # Validates actions against active screen elements
-│   │   │   │   │   ├── AgentAction.kt         # ActionType enum & AgentAction data class
-│   │   │   │   │   ├── AgentController.kt     # Core autonomous Observe-Think-Act control loop
-│   │   │   │   │   ├── AgentDebugScreen.kt    # Agent tab: goal input, state metrics & live trace log
-│   │   │   │   │   ├── AgentForegroundService.kt # Foreground service keeping agent alive during execution
-│   │   │   │   │   ├── AgentOverlayManager.kt # Translucent floating HUD on top of target apps
-│   │   │   │   │   ├── AgentState.kt          # Observable agent state repository and execution logs
-│   │   │   │   │   ├── AppResolver.kt         # Resolves natural app names to package identifiers
-│   │   │   │   │   ├── Goal.kt                # Goal domain model (app, objective, parameters)
-│   │   │   │   │   ├── LoopDetector.kt        # Detects state oscillation and stagnant cycles
-│   │   │   │   │   ├── RecoveryManager.kt     # Heuristic recovery via backtracking navigation
-│   │   │   │   │   └── UiState.kt             # Agent screen representation & fingerprint calculation
-│   │   │   │   ├── bridge/
-│   │   │   │   │   ├── AutomationBridge.kt    # Automation interface definition
-│   │   │   │   │   └── AutomationBridgeImpl.kt# Bridge implementation binding controller to accessibility
-│   │   │   │   ├── model/
-│   │   │   │   │   ├── GeminiApiClient.kt     # Gemini REST client (gemini-3.5-flash-lite)
-│   │   │   │   │   ├── LlamaCppBackend.kt     # JNI backend for local GGUF execution
-│   │   │   │   │   ├── ModelBackend.kt        # Common model backend interface
-│   │   │   │   │   └── ModelManager.kt        # Backend singleton provider
-│   │   │   │   ├── ui/theme/
-│   │   │   │   │   ├── Color.kt               # Design palette
-│   │   │   │   │   ├── Theme.kt               # Material3 theme configuration
-│   │   │   │   │   └── Type.kt                # Typography definitions
-│   │   │   │   └── voice/
-│   │   │   │       ├── AgentRequestRouter.kt  # Natural language command to AgentRequest router
-│   │   │   │       ├── AudioCaptureManager.kt # 16kHz PCM audio capture via AudioRecord
-│   │   │   │       ├── GeminiLiveSttClient.kt # Gemini Live WebSocket client for real-time STT
-│   │   │   │       ├── TAVVoiceInteractionService.kt # VoiceInteractionService implementation
-│   │   │   │       ├── TAVVoiceInteractionSession.kt # VoiceInteractionSession implementation
-│   │   │   │       ├── TAVVoiceInteractionSessionService.kt # Session service binding
-│   │   │   │       ├── VoiceInputListener.kt  # STT event listener interface
-│   │   │   │       ├── VoiceInputManager.kt   # Platform SpeechRecognizer wrapper
-│   │   │   │       ├── VoiceListeningOverlayManager.kt # Translucent floating voice HUD
-│   │   │   │       ├── VoiceStateRepository.kt# Observable voice listener state
-│   │   │   │       └── WakeWordManager.kt     # Fuzzy wake-phrase detector ("Hey start listening")
-│   │   │   ├── keepRules/
-│   │   │   │   └── rules.keep                 # R8/ProGuard retention definitions
-│   │   │   ├── res/
-│   │   │   │   ├── values/
-│   │   │   │   │   ├── colors.xml
-│   │   │   │   │   ├── strings.xml            # App name ("Mirror UI") & service descriptions
-│   │   │   │   │   └── themes.xml
-│   │   │   │   └── xml/
-│   │   │   │       ├── accessibility_service_config.xml # Accessibility flags and capabilities
-│   │   │   │       ├── backup_rules.xml
-│   │   │   │       ├── data_extraction_rules.xml
-│   │   │   │       └── voice_interaction_service.xml    # Voice interaction configuration
-│   │   │   └── AndroidManifest.xml            # Manifest declaring services, permissions & launcher
-│   │   ├── test/                              # Host-side unit tests
-│   │   └── androidTest/                       # Instrumentation tests
-│   └── build.gradle.kts                       # App build script: NDK, Compose, BuildConfig & dependencies
-├── build.gradle.kts                           # Root Gradle script
-├── gradle.properties                          # JVM & AndroidX properties
-└── settings.gradle.kts                        # Plugin repositories & module definitions
-```
-
----
-
 ## Tech Stack & Dependencies
 
 ### Core Frameworks & Languages
@@ -406,26 +350,21 @@ TeachableVoiceAutomation/
 ### Production Dependencies
 | Dependency | Version | Purpose in Architecture |
 |---|---|---|
-| `com.squareup.okhttp3:okhttp` | `4.12.0` | Establishes bidirectional WebSockets for `GeminiLiveSttClient` to stream raw audio and receive live transcripts. |
-| `androidx.compose.bom` | `2026.02.01` | Bill of Materials ensuring harmonized Compose library versions. |
+| [`androidx.compose.bom`](TAV-main/gradle/libs.versions.toml) | `2026.02.01` | Bill of Materials ensuring harmonized Compose library versions. |
 | `androidx.activity:activity-compose` | `1.8.0` | Provides Compose entrypoint (`setContent`), system back handlers, and activity result launchers. |
 | `androidx.compose.material3:material3` | Dynamic | Material Design 3 UI components, themes, buttons, cards, and text fields. |
 | `androidx.compose.ui:ui` & `ui-graphics` | Dynamic | Foundational UI rendering, pointer gesture detection, canvas drawing, and layout measurement. |
 | `androidx.core:core-ktx` | `1.10.1` | Kotlin extensions for Android framework classes, permissions, and notifications. |
 | `androidx.lifecycle:lifecycle-runtime-ktx`| `2.6.1` | Lifecycle coroutine scopes and integration with Compose state collection (`collectAsState`). |
-| `org.json` | Platform | Built-in Android JSON parsing used by `ActionParser`, `GeminiApiClient`, and `AgentRequestRouter`. |
-| `java.net.HttpURLConnection` | Platform | Lightweight, dependency-free HTTPS transport used in `GeminiApiClient`. |
+| `org.json` | Platform | Built-in Android JSON parsing used by `ActionParser` and `AgentRequestRouter`. |
 
 ---
 
 ## Android Configuration & Permissions
 
-TAV requires specific Android capabilities to operate as an automated agent and accessibility mirror:
+From [`AndroidManifest.xml`](TAV-main/app/src/main/AndroidManifest.xml):
 
 ```xml
-<!-- Network communication with Gemini API & Live WebSockets -->
-<uses-permission android:name="android.permission.INTERNET" />
-
 <!-- Enumerate installed applications on Android 11+ (API 30+) for app resolution -->
 <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" tools:ignore="QueryAllPackagesPermission" />
 
@@ -434,22 +373,22 @@ TAV requires specific Android capabilities to operate as an automated agent and 
 <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
 
-<!-- Microphone audio recording for speech-to-text -->
+<!-- Microphone audio recording for local speech-to-text -->
 <uses-permission android:name="android.permission.RECORD_AUDIO" />
 ```
 
 ### Component Declarations
-- **`MainActivity`**: Exported launcher activity configured with `windowSoftInputMode="adjustResize"`.
-- **`MirrorAccessibilityService`**:
+- **[`MainActivity`](TAV-main/app/src/main/java/com/example/teachablevoice/MainActivity.kt)**: Exported launcher activity configured with `windowSoftInputMode="adjustResize"`.
+- **[`MirrorAccessibilityService`](TAV-main/app/src/main/java/com/example/teachablevoice/MirrorAccessibilityService.kt)**:
   - Bound via `android.permission.BIND_ACCESSIBILITY_SERVICE`.
   - Flags: `flagDefault`, `flagRetrieveInteractiveWindows`, `flagIncludeNotImportantViews`.
   - Capabilities: `canRetrieveWindowContent="true"`, `canPerformGestures="true"`.
-- **`AgentForegroundService`**:
+- **[`AgentForegroundService`](TAV-main/app/src/main/java/com/example/teachablevoice/agent/AgentForegroundService.kt)**:
   - Internal execution service (`exported="false"`, `foregroundServiceType="specialUse"`).
-- **`TAVVoiceInteractionService`**:
+- **[`TAVVoiceInteractionService`](TAV-main/app/src/main/java/com/example/teachablevoice/voice/TAVVoiceInteractionService.kt)**:
   - System assistant service bound via `android.permission.BIND_VOICE_INTERACTION`.
   - Configured with `supportsAssist="true"`, `supportsLaunchVoiceAssistFromKeyguard="true"`, and `supportsLocalInteraction="true"`.
-- **`TAVVoiceInteractionSessionService`**:
+- **[`TAVVoiceInteractionSessionService`](TAV-main/app/src/main/java/com/example/teachablevoice/voice/TAVVoiceInteractionSessionService.kt)**:
   - Session manager bound via `android.permission.BIND_VOICE_INTERACTION_SERVICE`.
 
 ---
@@ -457,24 +396,13 @@ TAV requires specific Android capabilities to operate as an automated agent and 
 ## Setup & Build Instructions
 
 ### Prerequisites
-1. **Android Studio** (Koala / Ladybug or newer recommended).
+1. **Android Studio** (Koala, Ladybug, or newer).
 2. **Android SDK Platform 37** installed via SDK Manager.
 3. **Android NDK** `25.1.8937393` and **CMake** `3.22.1` installed via SDK Tools.
 4. An Android device or emulator running **Android 11+ (API 30+)** for screenshot mirroring and voice interaction.
-5. A **Google Gemini API Key** from [Google AI Studio](https://aistudio.google.com/).
+5. A quantized GGUF language model (e.g. `LittleLamb-290M.gguf` or compatible small SLM) placed in the `app/src/main/assets/` directory.
 
-### 1. Configure API Credentials
-Create or edit `local.properties` in the project root directory (do not commit this file):
-
-```properties
-# local.properties
-sdk.dir=/path/to/your/android-sdk
-GEMINI_API_KEY=your_gemini_api_key_here
-```
-
-`app/build.gradle.kts` injects this property directly into `BuildConfig.GEMINI_API_KEY` at build time.
-
-### 2. Build the Project
+### 1. Build the Project
 Open terminal in the repository root:
 
 ```bash
@@ -485,7 +413,7 @@ Open terminal in the repository root:
 ./gradlew installDebug
 ```
 
-### 3. Required Device Permissions & Settings
+### 2. Required Device Permissions & Settings
 Once installed, configure the required device permissions:
 
 1. **Enable Accessibility Service**:
@@ -499,18 +427,18 @@ Once installed, configure the required device permissions:
 
 ---
 
-## Known Limitations & Design Constraints
+## Known Limitations & Notes
 
 1. **Screenshot Capture API Level**:
    - Visual screenshot capture relies on `AccessibilityService.takeScreenshot()`, which requires **Android 11 (API 30)** or higher. On Android 10 and below, TAV automatically falls back to **Tree Mirror Mode**.
 2. **Foreground App Exclusions**:
-   - To avoid recursive self-mirroring loops and capture corruption, `MirrorAccessibilityService` deliberately ignores events originating from `com.example.teachablevoice`, `com.android.systemui`, and launcher packages (`com.android.launcher*`).
+   - To avoid recursive self-mirroring loops and capture corruption, [`MirrorAccessibilityService`](TAV-main/app/src/main/java/com/example/teachablevoice/MirrorAccessibilityService.kt) deliberately ignores events originating from `com.example.teachablevoice`, `com.android.systemui`, and launcher packages (`com.android.launcher*`).
 3. **System Alert Window Alternative**:
    - TAV deliberately avoids requesting the invasive `SYSTEM_ALERT_WINDOW` permission by using `TYPE_ACCESSIBILITY_OVERLAY`. As a result, overlays can only be displayed when the accessibility service is active.
 4. **Target App Rendering Latency**:
    - When switching or launching applications, TAV injects deliberate stabilization delays (e.g., 2000ms after app launch, 1000ms after UI actions) to allow third-party animations and dynamic layouts to settle before extracting the accessibility hierarchy.
 5. **ABI Architecture**:
-   - Native builds (`libtav_llama.so`) specify `abiFilters += listOf("arm64-v8a")`. If deploying to 32-bit ARM or x86/x86_64 emulators, adjust the ABI filters in `app/build.gradle.kts`.
+   - Native builds (`libtav_llama.so`) specify `abiFilters += listOf("arm64-v8a")`. If deploying to 32-bit ARM or x86/x86_64 emulators, adjust the ABI filters in [`app/build.gradle.kts`](TAV-main/app/build.gradle.kts).
 
 ---
 
