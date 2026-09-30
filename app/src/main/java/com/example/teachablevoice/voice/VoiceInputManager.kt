@@ -76,14 +76,11 @@ class VoiceInputManager(private val context: Context) {
      * Stop listening and release the recognizer.
      */
     fun stopListening() {
-        isListening = false
         try {
             speechRecognizer?.stopListening()
-            speechRecognizer?.cancel()
         } catch (e: Exception) {
             Log.w(TAG, "Error stopping recognizer: ${e.message}")
         }
-        listener?.onListeningStopped()
     }
 
     /**
@@ -133,9 +130,9 @@ class VoiceInputManager(private val context: Context) {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-US")
             // Maximum number of alternative results
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-            // Don't stop after brief silence — allow natural pauses in speech
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 3000L)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 2000L)
+            // Wait 1.5 seconds after speech stops to consider it complete (debouncing)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L)
         }
     }
 
@@ -175,15 +172,9 @@ class VoiceInputManager(private val context: Context) {
                     // Recoverable errors — auto-restart if still in listening mode
                     SpeechRecognizer.ERROR_NO_MATCH,
                     SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> {
-                        consecutiveErrors++
-                        if (isListening && consecutiveErrors < MAX_CONSECUTIVE_ERRORS) {
-                            Log.i(TAG, "Recoverable error, restarting... (attempt $consecutiveErrors)")
-                            restartRecognizer()
-                        } else {
-                            isListening = false
-                            listener?.onSpeechError(errorMessage)
-                            listener?.onListeningStopped()
-                        }
+                        isListening = false
+                        listener?.onSpeechError(errorMessage)
+                        listener?.onListeningStopped()
                     }
                     // Non-recoverable errors
                     else -> {
@@ -205,11 +196,8 @@ class VoiceInputManager(private val context: Context) {
                     Log.w(TAG, "Empty speech result")
                 }
 
-                // After receiving a final result, if we're still in listening mode,
-                // restart to capture the next utterance
-                if (isListening) {
-                    restartRecognizer()
-                }
+                isListening = false
+                listener?.onListeningStopped()
             }
 
             override fun onPartialResults(partialResults: Bundle?) {
@@ -226,23 +214,7 @@ class VoiceInputManager(private val context: Context) {
         }
     }
 
-    /**
-     * Restart the recognizer after a result or recoverable error.
-     * Small delay to avoid rapid cycling.
-     */
-    private fun restartRecognizer() {
-        try {
-            speechRecognizer?.cancel()
-            val intent = createRecognizerIntent()
-            speechRecognizer?.startListening(intent)
-            Log.d(TAG, "Recognizer restarted")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to restart recognizer: ${e.message}")
-            isListening = false
-            listener?.onSpeechError("Failed to restart speech recognition")
-            listener?.onListeningStopped()
-        }
-    }
+
 
     private fun mapSpeechError(errorCode: Int): String {
         return when (errorCode) {

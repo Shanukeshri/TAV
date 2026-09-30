@@ -124,13 +124,12 @@ class GeminiApiClient(
     // ──────────────────────────────────────────────
 
     private fun executeHttpRequest(body: String): String {
-        val url = URL("${BASE_URL}${model}:generateContent")
+        val url = URL("${BASE_URL}${model}:generateContent?key=$apiKey")
         val connection = url.openConnection() as HttpURLConnection
 
         try {
             connection.requestMethod = "POST"
             connection.setRequestProperty("Content-Type", "application/json")
-            connection.setRequestProperty("X-goog-api-key", apiKey)
             connection.connectTimeout = CONNECT_TIMEOUT_MS
             connection.readTimeout = READ_TIMEOUT_MS
             connection.doOutput = true

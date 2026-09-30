@@ -52,6 +52,7 @@ class TAVVoiceInteractionSession(context: Context) : VoiceInteractionSession(con
     private val SILENCE_TIMEOUT_MS = 1500L
     private var emptySilenceCount = 0
     private val MAX_EMPTY_SILENCE = 5 // Hide if no speech after ~7.5 seconds
+    private var pendingProcess = false
 
     override fun onCreate() {
         super.onCreate()
@@ -70,6 +71,7 @@ class TAVVoiceInteractionSession(context: Context) : VoiceInteractionSession(con
         accumulatedCommand = ""
         currentPartial = ""
         emptySilenceCount = 0
+        pendingProcess = false
         voiceState.transitionTo(VoiceListenerState.COMMAND_LISTENING)
         
         // Give the UI a moment to show up before starting the mic
@@ -109,20 +111,28 @@ class TAVVoiceInteractionSession(context: Context) : VoiceInteractionSession(con
         silenceRunnable = Runnable {
             if (voiceState.current.state != VoiceListenerState.COMMAND_LISTENING) return@Runnable
 
-            val finalCommand = (accumulatedCommand + " " + currentPartial).trim()
-            if (finalCommand.isNotEmpty()) {
-                Log.i(TAG, "Silence timeout reached. Processing: $finalCommand")
-                processCommand(finalCommand)
-            } else {
-                emptySilenceCount++
-                if (emptySilenceCount >= MAX_EMPTY_SILENCE) {
-                    Log.i(TAG, "Max silence reached. Hiding session.")
-                    voiceState.setError("Listening timed out.")
-                    handler.postDelayed({ hide() }, RESTART_DELAY_MS)
+            if (currentPartial.isEmpty()) {
+                val finalCommand = accumulatedCommand.trim()
+                if (finalCommand.isNotEmpty()) {
+                    Log.i(TAG, "Silence timeout reached (empty burst). Processing: $finalCommand")
+                    processCommand(finalCommand)
                 } else {
-                    // Keep waiting
-                    startSilenceTimer()
+                    emptySilenceCount++
+                    if (emptySilenceCount >= MAX_EMPTY_SILENCE) {
+                        Log.i(TAG, "Max silence reached. Hiding session.")
+                        voiceState.setError("Listening timed out.")
+                        handler.postDelayed({ hide() }, RESTART_DELAY_MS)
+                    } else {
+                        // Keep waiting
+                        startSilenceTimer()
+                    }
                 }
+            } else {
+                // There is a partial result, but user paused for 1.5s.
+                // We stop listening to force native STT to finalize its result via onSpeechResult.
+                Log.i(TAG, "Silence timeout reached (active burst). Forcing STT to finalize.")
+                pendingProcess = true
+                voiceInputManager.stopListening()
             }
         }
         handler.postDelayed(silenceRunnable!!, SILENCE_TIMEOUT_MS)
@@ -141,7 +151,17 @@ class TAVVoiceInteractionSession(context: Context) : VoiceInteractionSession(con
                 }
                 currentPartial = ""
                 updateUI()
-                resetSilenceTimer()
+                
+                if (pendingProcess) {
+                    pendingProcess = false
+                    val finalCommand = accumulatedCommand.trim()
+                    if (finalCommand.isNotEmpty()) {
+                        Log.i(TAG, "Forced speech result finalized. Processing: $finalCommand")
+                        processCommand(finalCommand)
+                    }
+                } else {
+                    resetSilenceTimer()
+                }
             }
 
             override fun onPartialResult(partialText: String) {
@@ -168,14 +188,16 @@ class TAVVoiceInteractionSession(context: Context) : VoiceInteractionSession(con
 
             override fun onSpeechError(error: String) {
                 Log.w(TAG, "Command STT error: $error")
-                // Ignore STT errors (like timeout) during continuous listening; just restart.
-                if (voiceState.current.state == VoiceListenerState.COMMAND_LISTENING) {
-                    handler.postDelayed({
-                        if (voiceState.current.state == VoiceListenerState.COMMAND_LISTENING) {
-                            voiceInputManager.startListening()
-                        }
-                    }, 100)
+                if (pendingProcess) {
+                    pendingProcess = false
+                    val finalCommand = accumulatedCommand.trim()
+                    if (finalCommand.isNotEmpty()) {
+                        Log.i(TAG, "Forced speech resulted in error. Processing accumulated: $finalCommand")
+                        processCommand(finalCommand)
+                    }
                 }
+                // STT error (like timeout or no match). We ignore it here because 
+                // VoiceInputManager will also fire onListeningStopped(), which handles the restart.
             }
         })
     }

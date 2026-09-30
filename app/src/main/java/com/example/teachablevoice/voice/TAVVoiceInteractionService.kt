@@ -73,7 +73,7 @@ class TAVVoiceInteractionService : VoiceInteractionService() {
 
             override fun onSpeechError(error: String) {
                 Log.w(TAG, "Wake STT error: $error")
-                restartListening()
+                // Ignored here because onListeningStopped will handle the restart
             }
         })
 
