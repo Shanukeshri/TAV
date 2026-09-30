@@ -45,9 +45,13 @@ class TAVVoiceInteractionSession(context: Context) : VoiceInteractionSession(con
     // We reuse wake word manager just to check if the user repeated the wake phrase
     private val wakeWordManager = WakeWordManager()
 
-    // Keep track of how many times we've restarted STT during this session
-    private var sttRestartCount = 0
-    private val MAX_STT_RESTARTS = 5
+    // ── Continuous Listening State ──
+    private var accumulatedCommand = ""
+    private var currentPartial = ""
+    private var silenceRunnable: Runnable? = null
+    private val SILENCE_TIMEOUT_MS = 1500L
+    private var emptySilenceCount = 0
+    private val MAX_EMPTY_SILENCE = 5 // Hide if no speech after ~7.5 seconds
 
     override fun onCreate() {
         super.onCreate()
@@ -63,12 +67,15 @@ class TAVVoiceInteractionSession(context: Context) : VoiceInteractionSession(con
         super.onShow(args, showFlags)
         Log.i(TAG, "Session shown, starting command capture")
         
-        sttRestartCount = 0
+        accumulatedCommand = ""
+        currentPartial = ""
+        emptySilenceCount = 0
         voiceState.transitionTo(VoiceListenerState.COMMAND_LISTENING)
         
         // Give the UI a moment to show up before starting the mic
         handler.postDelayed({
             voiceInputManager.startListening()
+            startSilenceTimer()
         }, 300)
     }
 
@@ -87,27 +94,60 @@ class TAVVoiceInteractionSession(context: Context) : VoiceInteractionSession(con
         super.onDestroy()
         voiceInputManager.destroy()
         handler.removeCallbacksAndMessages(null)
+        silenceRunnable = null
+    }
+
+    private fun updateUI() {
+        val display = (accumulatedCommand + " " + currentPartial).trim()
+        if (voiceState.current.state == VoiceListenerState.COMMAND_LISTENING) {
+            voiceState.updatePartialText(display)
+        }
+    }
+
+    private fun startSilenceTimer() {
+        silenceRunnable?.let { handler.removeCallbacks(it) }
+        silenceRunnable = Runnable {
+            if (voiceState.current.state != VoiceListenerState.COMMAND_LISTENING) return@Runnable
+
+            val finalCommand = (accumulatedCommand + " " + currentPartial).trim()
+            if (finalCommand.isNotEmpty()) {
+                Log.i(TAG, "Silence timeout reached. Processing: $finalCommand")
+                processCommand(finalCommand)
+            } else {
+                emptySilenceCount++
+                if (emptySilenceCount >= MAX_EMPTY_SILENCE) {
+                    Log.i(TAG, "Max silence reached. Hiding session.")
+                    voiceState.setError("Listening timed out.")
+                    handler.postDelayed({ hide() }, RESTART_DELAY_MS)
+                } else {
+                    // Keep waiting
+                    startSilenceTimer()
+                }
+            }
+        }
+        handler.postDelayed(silenceRunnable!!, SILENCE_TIMEOUT_MS)
+    }
+
+    private fun resetSilenceTimer() {
+        emptySilenceCount = 0
+        startSilenceTimer()
     }
 
     private fun setupCommandListener() {
         voiceInputManager.setListener(object : VoiceInputListener {
             override fun onSpeechResult(text: String) {
-                Log.d(TAG, "Command heard: \"$text\"")
-
-                if (wakeWordManager.isWakePhrase(text)) {
-                    Log.d(TAG, "Wake phrase repeated, staying in COMMAND_LISTENING")
-                    // Restart listening for actual command
-                    handler.postDelayed({ voiceInputManager.startListening() }, 300)
-                    return
+                if (!wakeWordManager.isWakePhrase(text)) {
+                    accumulatedCommand += " $text"
                 }
-
-                processCommand(text)
+                currentPartial = ""
+                updateUI()
+                resetSilenceTimer()
             }
 
             override fun onPartialResult(partialText: String) {
-                if (voiceState.current.state == VoiceListenerState.COMMAND_LISTENING) {
-                    voiceState.updatePartialText(partialText)
-                }
+                currentPartial = partialText
+                updateUI()
+                resetSilenceTimer()
             }
 
             override fun onListeningStarted() {
@@ -116,36 +156,25 @@ class TAVVoiceInteractionSession(context: Context) : VoiceInteractionSession(con
 
             override fun onListeningStopped() {
                 Log.d(TAG, "Command STT stopped")
+                // STT stopped natively (e.g. paused). Restart it immediately so we don't miss anything.
                 if (voiceState.current.state == VoiceListenerState.COMMAND_LISTENING) {
-                    if (sttRestartCount < MAX_STT_RESTARTS) {
-                        sttRestartCount++
-                        handler.postDelayed({
-                            if (voiceState.current.state == VoiceListenerState.COMMAND_LISTENING) {
-                                voiceInputManager.startListening()
-                            }
-                        }, 500)
-                    } else {
-                        voiceState.setError("Listening timed out.")
-                        handler.postDelayed({ hide() }, RESTART_DELAY_MS)
-                    }
+                    handler.postDelayed({
+                        if (voiceState.current.state == VoiceListenerState.COMMAND_LISTENING) {
+                            voiceInputManager.startListening()
+                        }
+                    }, 100)
                 }
             }
 
             override fun onSpeechError(error: String) {
                 Log.w(TAG, "Command STT error: $error")
+                // Ignore STT errors (like timeout) during continuous listening; just restart.
                 if (voiceState.current.state == VoiceListenerState.COMMAND_LISTENING) {
-                    if (sttRestartCount < MAX_STT_RESTARTS) {
-                        sttRestartCount++
-                        // Just silently restart without showing an error to keep the window open
-                        handler.postDelayed({
-                            if (voiceState.current.state == VoiceListenerState.COMMAND_LISTENING) {
-                                voiceInputManager.startListening()
-                            }
-                        }, 500)
-                    } else {
-                        voiceState.setError("Couldn't hear you: $error")
-                        handler.postDelayed({ hide() }, RESTART_DELAY_MS)
-                    }
+                    handler.postDelayed({
+                        if (voiceState.current.state == VoiceListenerState.COMMAND_LISTENING) {
+                            voiceInputManager.startListening()
+                        }
+                    }, 100)
                 }
             }
         })
