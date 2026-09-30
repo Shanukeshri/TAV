@@ -170,7 +170,7 @@ class AgentController(
             CURRENT STATE: ${uiState.fingerprint}
             
             ELEMENTS:
-            ${uiState.elements.joinToString("\n") { "- id: ${it.id}, role: ${it.role}, label: '${it.label}', actions: ${it.actions}" }}
+            ${uiState.elements.joinToString("\n") { "- id: ${it.id}, role: ${it.role}, label: '${it.label}', hint: '${it.hint}', editable: ${it.isEditable}, actions: ${it.actions}" }}
             
             RECENT ACTIONS:
             ${agentState.history.takeLast(3).joinToString("\n") { "${it.action.action} ${it.action.elementId ?: ""} -> ${it.result}" }}

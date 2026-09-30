@@ -41,6 +41,7 @@ class GeminiApiClient(
         and must decide the single next action to take toward the user's goal.
 
         RULES:
+        - ON EVERY STEP, evaluate if the user's goal has been fully achieved based on the current UI state. If it is achieved, you MUST output ONLY {"action": "DONE"} and stop.
         - FIRST, validate if you are on the correct app/page for the goal. If not, take navigation actions (like BACK, HOME, or CLICKing menus) to reach the correct page BEFORE proceeding.
         - Output ONLY a single valid JSON object. No explanation, no markdown, no reasoning.
         - Format: {"action": "ACTION_TYPE", "element_id": "id", "value": "text", "direction": "UP/DOWN/LEFT/RIGHT", "message": "text"}
@@ -48,11 +49,10 @@ class GeminiApiClient(
         - For CLICK/LONG_CLICK/INPUT: provide "element_id"
         - For INPUT: also provide "value" with the text to type
         - For SCROLL/SWIPE: optionally provide "direction" (UP, DOWN, LEFT, RIGHT)
-        - For DONE: use when the goal is fully achieved
+        - For DONE: use ONLY when the goal is fully achieved
         - For ASK: use when you need clarification, provide "message"
         - Do NOT repeat failed actions
         - If stuck, choose BACK
-        - If goal is achieved, choose DONE
     """.trimIndent()
 
     override suspend fun load() {

@@ -49,7 +49,6 @@ class AgentOverlayManager(private val service: AccessibilityService) {
     // Sub-views for updating content
     private var statusText: TextView? = null
     private var stepText: TextView? = null
-    private var actionText: TextView? = null
 
     /**
      * Starts observing agent state and shows/hides the overlay automatically.
@@ -154,7 +153,6 @@ class AgentOverlayManager(private val service: AccessibilityService) {
                     overlayView = null
                     statusText = null
                     stepText = null
-                    actionText = null
                     isShowing = false
                 }
                 .start()
@@ -245,21 +243,7 @@ class AgentOverlayManager(private val service: AccessibilityService) {
 
         root.addView(topRow)
 
-        // ── Row 2: Last action label ──
-        actionText = TextView(ctx).apply {
-            text = "Initializing…"
-            setTextColor(Color.parseColor("#A0A0C0"))
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
-            maxLines = 1
-            setPadding(dp(16f).toInt(), dp(4f).toInt(), 0, 0)
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-        }
-        root.addView(actionText)
-
-        // ── Row 3: Stop button ──
+        // ── Row 2: Stop button ──
         val buttonRow = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.END
@@ -288,8 +272,8 @@ class AgentOverlayManager(private val service: AccessibilityService) {
                 state.statusMessage = "Stopped by user"
                 state.isRunning = false
                 state.appendLog("USER", "Agent stopped by user via overlay")
-                // Go to home screen to effectively close the target app
-                service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
+                // Terminate the app completely as requested
+                kotlin.system.exitProcess(0)
             }
         }
         buttonRow.addView(stopButton)
@@ -323,14 +307,6 @@ class AgentOverlayManager(private val service: AccessibilityService) {
         })
 
         stepText?.text = "Step $step"
-
-        // Show last log entry as the action text
-        val lastLog = state.log.lastOrNull()
-        actionText?.text = if (lastLog != null) {
-            "[${lastLog.tag}] ${lastLog.message.take(60)}"
-        } else {
-            "Initializing…"
-        }
     }
 
     // ──────────────────────────────────────────────

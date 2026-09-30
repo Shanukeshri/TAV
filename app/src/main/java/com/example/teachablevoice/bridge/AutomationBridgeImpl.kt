@@ -49,6 +49,8 @@ class AutomationBridgeImpl(private val context: Context) : AutomationBridge {
                         id = node.id,
                         role = node.type.name.lowercase(),
                         label = displayLabel,
+                        hint = node.hint,
+                        isEditable = node.editable,
                         actions = relevantActions
                     ))
                 }

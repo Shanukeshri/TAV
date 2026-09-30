@@ -4,6 +4,8 @@ data class UiElement(
     val id: String,
     val role: String,
     val label: String,
+    val hint: String,
+    val isEditable: Boolean,
     val actions: List<String>
 )
 
