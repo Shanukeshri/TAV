@@ -40,6 +40,8 @@ sealed class InteractionCommand {
         val endX: Float, val endY: Float,
         val durationMs: Long = 300
     ) : InteractionCommand()
+
+    object GlobalBack : InteractionCommand()
 }
 
 /**
@@ -106,5 +108,9 @@ object MirrorInteractionController {
         durationMs: Long = 300
     ) {
         _commands.tryEmit(InteractionCommand.CoordinateSwipe(startX, startY, endX, endY, durationMs))
+    }
+
+    fun requestGlobalBack() {
+        _commands.tryEmit(InteractionCommand.GlobalBack)
     }
 }

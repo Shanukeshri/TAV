@@ -72,7 +72,7 @@ fun countTotalNodes(node: NormalizedNode): Int {
 enum class MirrorViewMode { Screenshot, Tree }
 
 /** Top-level screen navigation */
-enum class AppScreen { Mirror, Apps }
+enum class AppScreen { Mirror, Apps, Debug }
 
 @Composable
 fun MirrorApp() {
@@ -114,6 +114,9 @@ fun MirrorApp() {
                     AppScreen.Apps -> {
                         AppLauncherScreen()
                     }
+                    AppScreen.Debug -> {
+                        com.example.teachablevoice.agent.AgentDebugScreen()
+                    }
                 }
             }
 
@@ -137,6 +140,8 @@ fun MirrorApp() {
                 }
             )
         }
+        
+        // Goal input is now in the Agent tab (AgentDebugScreen)
     }
 }
 
@@ -253,6 +258,12 @@ fun BottomNavBar(currentScreen: AppScreen, onScreenChange: (AppScreen) -> Unit) 
             label = "Apps",
             isSelected = currentScreen == AppScreen.Apps,
             onClick = { onScreenChange(AppScreen.Apps) }
+        )
+        BottomNavItem(
+            icon = "🐛",
+            label = "Agent",
+            isSelected = currentScreen == AppScreen.Debug,
+            onClick = { onScreenChange(AppScreen.Debug) }
         )
     }
 }

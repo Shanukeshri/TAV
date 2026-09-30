@@ -5,6 +5,8 @@
     <!-- Required to list all installed apps on Android 11+ (API 30+) -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <application
         android:allowBackup="true"
@@ -40,6 +42,11 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/accessibility_service_config" />
         </service>
+
+        <service
+            android:name=".agent.AgentForegroundService"
+            android:foregroundServiceType="specialUse"
+            android:exported="false" />
     </application>
 
 </manifest>

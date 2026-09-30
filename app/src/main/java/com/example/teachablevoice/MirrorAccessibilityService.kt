@@ -59,6 +59,7 @@ class MirrorAccessibilityService : AccessibilityService() {
             is InteractionCommand.CoordinateTap -> handleCoordinateTap(command.screenX, command.screenY)
             is InteractionCommand.CoordinateLongPress -> handleCoordinateLongPress(command.screenX, command.screenY)
             is InteractionCommand.CoordinateSwipe -> handleCoordinateSwipe(command)
+            is InteractionCommand.GlobalBack -> performGlobalAction(GLOBAL_ACTION_BACK)
         }
     }
 
