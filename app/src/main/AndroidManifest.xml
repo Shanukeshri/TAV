@@ -40,7 +40,7 @@
         </activity>
 
         <service
-            android:name=".MirrorAccessibilityService"
+            android:name=".bridge.MirrorAccessibilityService"
             android:exported="true"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
             android:label="@string/app_name">

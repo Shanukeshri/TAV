@@ -96,20 +96,27 @@ class TAVVoiceInteractionSession(context: Context) : VoiceInteractionSession(con
             if (voiceState.current.state == VoiceListenerState.LISTENING) {
                 Log.i(TAG, "7-second hard timeout reached, transcribing audio...")
                 voiceState.transitionTo(VoiceListenerState.TRANSCRIBING)
+                
+                val pcmData = pcmBuffer.toByteArray()
+                val wavData = audioCaptureManager?.pcmToWav(pcmData)
+
                 stopCaptureAndClient()
                 
-                transcribeRecordedAudio()
+                if (wavData != null) {
+                    transcribeRecordedAudio(wavData)
+                } else {
+                    Log.e(TAG, "Failed to process audio into WAV format")
+                    voiceState.setError("Failed to hear command")
+                    handler.postDelayed({ hide() }, RESTART_DELAY_MS)
+                }
             }
         }
         handler.postDelayed(hardTimeoutRunnable!!, HARD_LISTENING_TIMEOUT_MS)
     }
 
-    private fun transcribeRecordedAudio() {
+    private fun transcribeRecordedAudio(wavData: ByteArray) {
         scope.launch {
             try {
-                val pcmData = pcmBuffer.toByteArray()
-                val wavData = audioCaptureManager?.pcmToWav(pcmData) ?: return@launch
-                
                 val geminiApiClient = com.example.teachablevoice.model.GeminiApiClient()
                 val transcript = geminiApiClient.transcribeAudio(wavData)
                 

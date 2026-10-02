@@ -180,7 +180,13 @@ class GeminiApiClient(
             val firstCandidate = candidates.getJSONObject(0)
             val content = firstCandidate.getJSONObject("content")
             val parts = content.getJSONArray("parts")
-            val text = parts.getJSONObject(0).getString("text").trim()
+            val firstPart = parts.getJSONObject(0)
+            
+            val text = if (firstPart.has("audioTranscription")) {
+                firstPart.getJSONObject("audioTranscription").getString("text").trim()
+            } else {
+                firstPart.getString("text").trim()
+            }
 
             Log.d(TAG, "Model output: ${text.take(200)}")
             return text
