@@ -35,6 +35,7 @@ class GeminiApiClient(
         private const val BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/"
         private const val CONNECT_TIMEOUT_MS = 15_000
         private const val READ_TIMEOUT_MS = 30_000
+        private const val EMBEDDING_MODEL_ID = "text-embedding-004"
     }
 
     /**
@@ -187,6 +188,119 @@ class GeminiApiClient(
             Log.e(TAG, "Failed to parse Gemini response: ${e.message}")
             Log.e(TAG, "Raw response: ${responseJson.take(500)}")
             throw RuntimeException("Failed to parse Gemini API response: ${e.message}", e)
+        }
+    }
+    
+    // ──────────────────────────────────────────────
+    // ──────────────────────────────────────────────
+
+    suspend fun getEmbedding(text: String): FloatArray = withContext(Dispatchers.IO) {
+        if (!ready) throw IllegalStateException("GeminiApiClient not initialized.")
+        
+        val requestBody = JSONObject().apply {
+            put("model", "models/$EMBEDDING_MODEL_ID")
+            put("content", JSONObject().apply {
+                put("parts", JSONArray().apply {
+                    put(JSONObject().apply {
+                        put("text", text)
+                    })
+                })
+            })
+        }.toString()
+        
+        val url = URL("${BASE_URL}${EMBEDDING_MODEL_ID}:embedContent?key=$apiKey")
+        
+        // Very basic HTTP call for embeddings, without the full retry logic for brevity here,
+        // although it should ideally reuse a generic HTTP executor.
+        val connection = url.openConnection() as HttpURLConnection
+        try {
+            connection.requestMethod = "POST"
+            connection.setRequestProperty("Content-Type", "application/json")
+            connection.connectTimeout = CONNECT_TIMEOUT_MS
+            connection.readTimeout = READ_TIMEOUT_MS
+            connection.doOutput = true
+            
+            OutputStreamWriter(connection.outputStream, "UTF-8").use { writer ->
+                writer.write(requestBody)
+                writer.flush()
+            }
+            
+            val responseCode = connection.responseCode
+            if (responseCode == HttpURLConnection.HTTP_OK) {
+                val responseJson = BufferedReader(InputStreamReader(connection.inputStream, "UTF-8")).use { it.readText() }
+                val json = JSONObject(responseJson)
+                val values = json.getJSONObject("embedding").getJSONArray("values")
+                val floatArray = FloatArray(values.length())
+                for (i in 0 until values.length()) {
+                    floatArray[i] = values.getDouble(i).toFloat()
+                }
+                return@withContext floatArray
+            } else {
+                throw RuntimeException("Embedding API error: $responseCode")
+            }
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    // ──────────────────────────────────────────────
+    // Audio Transcription
+    // ──────────────────────────────────────────────
+
+    suspend fun transcribeAudio(wavData: ByteArray): String = withContext(Dispatchers.IO) {
+        val base64Audio = android.util.Base64.encodeToString(wavData, android.util.Base64.NO_WRAP)
+        
+        val requestBody = JSONObject().apply {
+            put("contents", JSONArray().apply {
+                put(JSONObject().apply {
+                    put("parts", JSONArray().apply {
+                        put(JSONObject().apply {
+                            put("text", "Please transcribe this audio accurately. Output only the transcript.")
+                        })
+                        put(JSONObject().apply {
+                            put("inlineData", JSONObject().apply {
+                                put("mimeType", "audio/wav")
+                                put("data", base64Audio)
+                            })
+                        })
+                    })
+                })
+            })
+            put("generationConfig", JSONObject().apply {
+                put("temperature", 0.1)
+            })
+        }.toString()
+
+        val url = URL("${BASE_URL}gemini-3.5-transcribe:generateContent?key=$apiKey")
+        val connection = url.openConnection() as HttpURLConnection
+        try {
+            connection.requestMethod = "POST"
+            connection.setRequestProperty("Content-Type", "application/json")
+            connection.connectTimeout = CONNECT_TIMEOUT_MS
+            connection.readTimeout = READ_TIMEOUT_MS
+            connection.doOutput = true
+            
+            OutputStreamWriter(connection.outputStream, "UTF-8").use { writer ->
+                writer.write(requestBody)
+                writer.flush()
+            }
+            
+            val responseCode = connection.responseCode
+            if (responseCode == HttpURLConnection.HTTP_OK) {
+                val responseJson = BufferedReader(InputStreamReader(connection.inputStream, "UTF-8")).use { it.readText() }
+                return@withContext parseResponse(responseJson)
+            } else {
+                val errorStream = connection.errorStream
+                val errorBody = if (errorStream != null) {
+                    BufferedReader(InputStreamReader(errorStream, "UTF-8")).use { it.readText() }
+                } else {
+                    "No error body"
+                }
+                Log.e(TAG, "Audio transcription API error ($responseCode): $errorBody")
+                throw RuntimeException("Audio transcription failed: $responseCode")
+            }
+        } finally {
+            connection.disconnect()
         }
     }
 }

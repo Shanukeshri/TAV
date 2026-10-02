@@ -44,6 +44,14 @@ class AgentController(
             var currentState = bridge.waitForUiChange(5000)
             state.appendLog("OBSERVE", "Got UI: app=${currentState.app}, elements=${currentState.elements.size}, fingerprint=${currentState.fingerprint}")
 
+            // Check for sensitive page
+            if (isSensitivePage(currentState)) {
+                state.appendLog("SECURITY", "Sensitive page detected (e.g. payment, credit card). Aborting for safety.", isError = true)
+                state.status = AgentStatus.ERROR
+                state.statusMessage = "Stopped at sensitive page."
+                return
+            }
+
             // Step 3: Agent loop
             while (state.isRunning) {
                 state.stepCount++
@@ -113,6 +121,14 @@ class AgentController(
                 state.appendLog("OBSERVE", "Result: $result (${nextState.elements.size} elements, fp=${nextState.fingerprint})")
                 state.recordTransition(Transition(currentState.fingerprint, action, nextState.fingerprint, result))
                 currentState = nextState
+
+                // Security check after every new UI state
+                if (isSensitivePage(currentState)) {
+                    state.appendLog("SECURITY", "Sensitive page detected (e.g. payment, credit card). Aborting for safety.", isError = true)
+                    state.status = AgentStatus.ERROR
+                    state.statusMessage = "Stopped at sensitive page."
+                    break
+                }
                 
                 if (loopDetector.isLooping()) {
                     state.appendLog("LOOP", "Loop detected! Attempting recovery…", isError = true)
@@ -191,5 +207,19 @@ class AgentController(
             - If dead end, choose BACK.
             - If goal satisfied, choose DONE.
         """.trimIndent()
+    }
+    
+    private fun isSensitivePage(uiState: UiState): Boolean {
+        val sensitiveKeywords = listOf("credit card", "cvv", "upi pin", "enter your pin", "password", "card number", "payment details", "bank account")
+        for (element in uiState.elements) {
+            val text = element.label.lowercase()
+            val hint = element.hint.lowercase()
+            for (keyword in sensitiveKeywords) {
+                if (text.contains(keyword) || hint.contains(keyword)) {
+                    return true
+                }
+            }
+        }
+        return false
     }
 }

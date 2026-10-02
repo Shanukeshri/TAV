@@ -418,8 +418,6 @@ class MirrorAccessibilityService : AccessibilityService() {
 
         lastExtractionTime = now
 
-        // ── Capture screenshot while target app is visible ──
-        captureScreenshot()
 
         // ── Find the best root node ──
         val bestRoot = findBestRootNode(packageName)

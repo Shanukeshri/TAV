@@ -75,6 +75,8 @@
             android:name=".voice.TAVVoiceInteractionSessionService"
             android:permission="android.permission.BIND_VOICE_INTERACTION_SERVICE"
             android:exported="true" />
+            
+        <receiver android:name=".trigger.TriggerReceiver" android:exported="false" />
     </application>
 
 </manifest>

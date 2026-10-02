@@ -39,8 +39,8 @@ class TAVVoiceInteractionSession(context: Context) : VoiceInteractionSession(con
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     private var audioCaptureManager: AudioCaptureManager? = null
-    private var geminiSttClient: GeminiLiveSttClient? = null
     
+    private var pcmBuffer = java.io.ByteArrayOutputStream()
     private var accumulatedCommand = ""
     private var hardTimeoutRunnable: Runnable? = null
 
@@ -54,9 +54,10 @@ class TAVVoiceInteractionSession(context: Context) : VoiceInteractionSession(con
         Log.i(TAG, "Session shown, starting command capture")
         
         accumulatedCommand = ""
+        pcmBuffer.reset()
         voiceState.transitionTo(VoiceListenerState.LISTENING)
         
-        setupGeminiAndAudio()
+        setupAudioCapture()
     }
 
     override fun onHide() {
@@ -74,32 +75,10 @@ class TAVVoiceInteractionSession(context: Context) : VoiceInteractionSession(con
         handler.removeCallbacksAndMessages(null)
     }
 
-    private fun setupGeminiAndAudio() {
-        geminiSttClient = GeminiLiveSttClient(object : GeminiLiveSttClient.Listener {
-            override fun onConnected() {
-                Log.i(TAG, "Gemini STT connected, starting audio capture")
-                audioCaptureManager?.start()
-            }
-
-            override fun onTranscript(text: String, isFinal: Boolean) {
-                accumulatedCommand = if (accumulatedCommand.isEmpty()) text else "$accumulatedCommand $text"
-                voiceState.updatePartialText(accumulatedCommand)
-            }
-
-            override fun onError(error: String) {
-                Log.e(TAG, "Gemini STT error: $error")
-                voiceState.setError("STT error: $error")
-                handler.postDelayed({ hide() }, RESTART_DELAY_MS)
-            }
-
-            override fun onClosed() {
-                Log.i(TAG, "Gemini STT closed")
-            }
-        })
-        
+    private fun setupAudioCapture() {
         audioCaptureManager = AudioCaptureManager(object : AudioCaptureManager.AudioCaptureListener {
             override fun onAudioData(data: ByteArray, size: Int) {
-                geminiSttClient?.sendAudio(data, size)
+                pcmBuffer.write(data, 0, size)
             }
 
             override fun onError(error: String) {
@@ -107,51 +86,48 @@ class TAVVoiceInteractionSession(context: Context) : VoiceInteractionSession(con
             }
         })
 
-        geminiSttClient?.connect()
+        audioCaptureManager?.start()
 
         hardTimeoutRunnable?.let { handler.removeCallbacks(it) }
         hardTimeoutRunnable = Runnable {
             if (voiceState.current.state == VoiceListenerState.LISTENING) {
-                Log.i(TAG, "7-second hard timeout reached, processing whatever was heard")
-                audioCaptureManager?.stop()
-                geminiSttClient?.sendEndOfAudio()
+                Log.i(TAG, "7-second hard timeout reached, transcribing audio...")
+                voiceState.transitionTo(VoiceListenerState.TRANSCRIBING)
+                stopCaptureAndClient()
                 
-                // Give a short delay to allow final transcript chunks to arrive, then process
-                handler.postDelayed({
-                    if (voiceState.current.state == VoiceListenerState.LISTENING) {
-                        finalizeCommand()
-                    }
-                }, 500)
+                transcribeRecordedAudio()
             }
         }
         handler.postDelayed(hardTimeoutRunnable!!, HARD_LISTENING_TIMEOUT_MS)
     }
 
+    private fun transcribeRecordedAudio() {
+        scope.launch {
+            try {
+                val pcmData = pcmBuffer.toByteArray()
+                val wavData = audioCaptureManager?.pcmToWav(pcmData) ?: return@launch
+                
+                val geminiApiClient = com.example.teachablevoice.model.GeminiApiClient()
+                val transcript = geminiApiClient.transcribeAudio(wavData)
+                
+                accumulatedCommand = transcript
+                processCommand(transcript)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to transcribe audio", e)
+                voiceState.setError("Failed to hear command")
+                handler.postDelayed({ hide() }, RESTART_DELAY_MS)
+            }
+        }
+    }
+
     private fun stopCaptureAndClient() {
         audioCaptureManager?.stop()
-        geminiSttClient?.close()
         audioCaptureManager = null
-        geminiSttClient = null
         hardTimeoutRunnable?.let { handler.removeCallbacks(it) }
     }
 
-    private fun finalizeCommand() {
-        if (voiceState.current.state != VoiceListenerState.LISTENING) return
-        
-        hardTimeoutRunnable?.let { handler.removeCallbacks(it) }
-        val finalCommand = accumulatedCommand.trim()
-        
-        if (finalCommand.isEmpty()) {
-            voiceState.setError("No command heard")
-            handler.postDelayed({ hide() }, RESTART_DELAY_MS)
-            return
-        }
-
-        voiceState.transitionTo(VoiceListenerState.TRANSCRIBING)
-        stopCaptureAndClient()
-        
-        processCommand(finalCommand)
-    }
+        // finalizeCommand is no longer used since we transcribe the whole block at once,
+        // but keeping it empty to avoid deleting code.
 
     private fun processCommand(command: String) {
         voiceState.setTranscription(command)

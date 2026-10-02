@@ -1,0 +1,17 @@
+--------- beginning of main
+10-02 16:45:12.862  5738  5738 I ModelManager: Initializing with GeminiApiClient (gemini-3.5-flash-lite)
+10-02 16:45:19.826  5738  5738 E TAV_ACCESSIBILITY: takeScreenshot call failed: Services don't have the capability of taking the screenshot.
+10-02 16:45:20.280  5738  5738 E TAV_ACCESSIBILITY: takeScreenshot call failed: Services don't have the capability of taking the screenshot.
+10-02 16:45:20.969  5738  5738 E TAV_ACCESSIBILITY: takeScreenshot call failed: Services don't have the capability of taking the screenshot.
+10-02 16:45:21.462  5738  5738 E TAV_ACCESSIBILITY: takeScreenshot call failed: Services don't have the capability of taking the screenshot.
+10-02 16:45:21.874  5738  5738 E TAV_ACCESSIBILITY: takeScreenshot call failed: Services don't have the capability of taking the screenshot.
+10-02 16:45:25.684  5738  5738 E TAV_ACCESSIBILITY: takeScreenshot call failed: Services don't have the capability of taking the screenshot.
+10-02 16:45:29.151  5738  5738 E TAV_ACCESSIBILITY: takeScreenshot call failed: Services don't have the capability of taking the screenshot.
+10-02 16:45:55.457  5738  5738 E TAV_ACCESSIBILITY: takeScreenshot call failed: Services don't have the capability of taking the screenshot.
+10-02 16:47:23.834  5738  5738 E TAV_ACCESSIBILITY: takeScreenshot call failed: Services don't have the capability of taking the screenshot.
+10-02 16:48:27.679  5738  5738 E TAV_ACCESSIBILITY: takeScreenshot call failed: Services don't have the capability of taking the screenshot.
+10-02 16:48:28.169  5738  5738 E TAV_ACCESSIBILITY: takeScreenshot call failed: Services don't have the capability of taking the screenshot.
+10-02 16:48:34.331  5738  5738 E TAV_ACCESSIBILITY: takeScreenshot call failed: Services don't have the capability of taking the screenshot.
+10-02 16:48:35.303  5738  5738 E TAV_ACCESSIBILITY: takeScreenshot call failed: Services don't have the capability of taking the screenshot.
+10-02 16:48:35.712  5738  5738 E TAV_ACCESSIBILITY: takeScreenshot call failed: Services don't have the capability of taking the screenshot.
+10-02 16:48:36.563  5738  5738 E TAV_ACCESSIBILITY: takeScreenshot call failed: Services don't have the capability of taking the screenshot.

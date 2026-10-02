@@ -56,7 +56,6 @@ class GeminiLiveSttClient(private val listener: Listener) {
                         put("generationConfig", JSONObject().apply {
                             put("responseModalities", JSONArray().put("TEXT"))
                         })
-                        put("inputAudioTranscription", JSONObject())
                     })
                 }
                 webSocket.send(setupMessage.toString())
@@ -110,9 +109,11 @@ class GeminiLiveSttClient(private val listener: Listener) {
         
         val realtimeInput = JSONObject().apply {
             put("realtimeInput", JSONObject().apply {
-                put("audio", JSONObject().apply {
-                    put("mimeType", "audio/pcm;rate=16000")
-                    put("data", base64Audio)
+                put("mediaChunks", JSONArray().apply {
+                    put(JSONObject().apply {
+                        put("mimeType", "audio/pcm;rate=16000")
+                        put("data", base64Audio)
+                    })
                 })
             })
         }
@@ -126,12 +127,12 @@ class GeminiLiveSttClient(private val listener: Listener) {
     fun sendEndOfAudio() {
         val ws = webSocket ?: return
         Log.i(TAG, "Sending audioStreamEnd")
-        val realtimeInput = JSONObject().apply {
-            put("realtimeInput", JSONObject().apply {
-                put("audioStreamEnd", true)
+        val clientContent = JSONObject().apply {
+            put("clientContent", JSONObject().apply {
+                put("turnComplete", true)
             })
         }
-        ws.send(realtimeInput.toString())
+        ws.send(clientContent.toString())
     }
 
     fun close() {

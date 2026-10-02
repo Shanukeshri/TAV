@@ -97,6 +97,13 @@ class AgentState {
     }
 
     fun appendLog(tag: String, message: String, isError: Boolean = false) {
+        val samTag = "SAM_$tag"
+        if (isError) {
+            android.util.Log.e(samTag, message)
+        } else {
+            android.util.Log.d(samTag, message)
+        }
+
         _stateFlow.update { current ->
             current.copy(log = current.log + AgentLogEntry(
                 tag = tag,
