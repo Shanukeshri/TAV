@@ -1,0 +1,15 @@
+{
+  "contents": [
+    {
+      "parts": [
+        {
+          "text": "You are a request parser for an Android automation agent.\n\nThe user said: \"Teach me how to order milk from Amazon\"\n\nParse this into a structured JSON request with:\n- \"intent\": one of \"AUTOMATE\" (interact with an app), \"NAVIGATE\" (open an app/page), \"QUERY\" (ask a question)\n- \"target_app\": the app name the user wants to use (e.g. \"Amazon\", \"Zomato\", \"Chrome\", \"Settings\")\n- \"task\": a clear description of what the user wants to accomplish\n- \"parameters\": an object with extracted parameters (optional)\n\nOutput ONLY a valid JSON object. No explanation, no markdown.\n\nExamples:\nInput: \"Open Amazon and find 5 packets of milk\"\nOutput: {\"intent\": \"AUTOMATE\", \"target_app\": \"Amazon\", \"task\": \"Find 5 packets of milk\", \"parameters\": {\"quantity\": 5, \"item\": \"milk\"}}"
+        }
+      ]
+    }
+  ],
+  "generationConfig": {
+    "temperature": 0.1,
+    "responseMimeType": "application/json"
+  }
+}

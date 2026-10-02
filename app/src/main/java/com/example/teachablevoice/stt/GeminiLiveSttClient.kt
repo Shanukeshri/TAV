@@ -1,4 +1,4 @@
-package com.example.teachablevoice.voice
+package com.example.teachablevoice.stt
 
 import android.util.Log
 import com.example.teachablevoice.BuildConfig

@@ -1,4 +1,4 @@
-package com.example.teachablevoice.voice
+package com.example.teachablevoice.router
 
 import android.content.Context
 import android.util.Log
@@ -95,7 +95,7 @@ class AgentRequestRouter(
             The user said: "$command"
             
             Parse this into a structured JSON request with:
-            - "intent": one of "AUTOMATE" (interact with an app), "NAVIGATE" (open an app/page), "QUERY" (ask a question)
+            - "intent": one of "AUTOMATE" (interact with an app), "NAVIGATE" (open an app/page), "QUERY" (ask a question), "TEACH" (user wants to teach a new workflow)
             - "target_app": the app name the user wants to use (e.g. "Amazon", "Zomato", "Chrome", "Settings")
             - "task": a clear description of what the user wants to accomplish
             - "parameters": an object with extracted parameters (optional)

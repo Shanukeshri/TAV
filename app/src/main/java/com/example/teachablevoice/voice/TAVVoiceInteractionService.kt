@@ -2,6 +2,8 @@ package com.example.teachablevoice.voice
 
 import android.content.Intent
 import android.os.Bundle
+import com.example.teachablevoice.core.VoiceStateRepository
+import com.example.teachablevoice.core.VoiceListenerState
 import android.os.Handler
 import android.os.Looper
 import android.service.voice.VoiceInteractionService
@@ -36,6 +38,7 @@ class TAVVoiceInteractionService : VoiceInteractionService() {
     override fun onReady() {
         super.onReady()
         Log.i(TAG, "TAVVoiceInteractionService onReady")
+        VoiceStateRepository.globalState.setServiceRunning(true)
         voiceInputManager = VoiceInputManager(this)
         startWakeWordListening()
     }
@@ -43,6 +46,7 @@ class TAVVoiceInteractionService : VoiceInteractionService() {
     override fun onShutdown() {
         super.onShutdown()
         Log.i(TAG, "TAVVoiceInteractionService onShutdown")
+        VoiceStateRepository.globalState.setServiceRunning(false)
         stopWakeWordListening()
         voiceInputManager.destroy()
     }

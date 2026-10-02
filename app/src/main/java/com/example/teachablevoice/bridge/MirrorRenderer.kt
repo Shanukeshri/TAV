@@ -1,4 +1,4 @@
-package com.example.teachablevoice
+package com.example.teachablevoice.bridge
 
 import android.graphics.Bitmap
 import android.graphics.Rect

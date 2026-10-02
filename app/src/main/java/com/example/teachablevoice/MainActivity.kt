@@ -4,6 +4,8 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.os.Bundle
 import android.provider.Settings
+import com.example.teachablevoice.bridge.*
+import com.example.teachablevoice.ui.*
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -31,8 +33,8 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import com.example.teachablevoice.ui.theme.TeachableVoiceAutomationTheme
-import com.example.teachablevoice.voice.VoiceStateRepository
-import com.example.teachablevoice.voice.VoiceListenerState
+import com.example.teachablevoice.core.VoiceStateRepository
+import com.example.teachablevoice.core.VoiceListenerState
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
@@ -61,6 +63,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         com.example.teachablevoice.model.ModelManager.init(applicationContext)
+        // Start App
+
+        
         enableEdgeToEdge()
         setContent {
             TeachableVoiceAutomationTheme {
@@ -131,7 +136,7 @@ fun MirrorApp() {
 
             // ── Voice Service Toggle Bar ──
             VoiceServiceBar(
-                isVoiceActive = voiceState.state != VoiceListenerState.IDLE,
+                isVoiceActive = isVoiceActive,
                 voiceState = voiceState.state,
                 hasAudioPermission = hasAudioPermission,
                 onToggleVoice = {

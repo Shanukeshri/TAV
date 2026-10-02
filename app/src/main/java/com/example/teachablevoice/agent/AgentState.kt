@@ -101,7 +101,7 @@ class AgentState {
         if (isError) {
             android.util.Log.e(samTag, message)
         } else {
-            android.util.Log.d(samTag, message)
+            android.util.Log.i(samTag, message)
         }
 
         _stateFlow.update { current ->

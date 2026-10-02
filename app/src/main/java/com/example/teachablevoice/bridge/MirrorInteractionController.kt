@@ -1,4 +1,4 @@
-package com.example.teachablevoice
+package com.example.teachablevoice.bridge
 
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow

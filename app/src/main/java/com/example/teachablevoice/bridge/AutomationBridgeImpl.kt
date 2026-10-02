@@ -5,12 +5,11 @@ import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.Intent
 import android.content.Context
 import android.util.Log
-import com.example.teachablevoice.MirrorInteractionController
-import com.example.teachablevoice.UiMirrorRepository
+
 import com.example.teachablevoice.agent.UiElement
 import com.example.teachablevoice.agent.UiState
 import kotlinx.coroutines.delay
-import com.example.teachablevoice.launchApp
+import com.example.teachablevoice.ui.launchApp
 
 class AutomationBridgeImpl(private val context: Context) : AutomationBridge {
 
@@ -32,7 +31,7 @@ class AutomationBridgeImpl(private val context: Context) : AutomationBridge {
         val elements = mutableListOf<UiElement>()
         var hasScrollable = false
         
-        fun traverse(node: com.example.teachablevoice.NormalizedNode) {
+        fun traverse(node: NormalizedNode) {
             if (node.scrollable) hasScrollable = true
             
             if (node.isMeaningful) {

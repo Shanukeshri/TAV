@@ -55,7 +55,7 @@
         <service
             android:name=".agent.AgentForegroundService"
             android:foregroundServiceType="specialUse"
-            android:exported="false" />
+            android:exported="true" />
 
         <!-- System-managed VoiceInteractionService for hotwording -->
         <service

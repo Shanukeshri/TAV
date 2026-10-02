@@ -1,4 +1,4 @@
-package com.example.teachablevoice.voice
+package com.example.teachablevoice.core
 
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow

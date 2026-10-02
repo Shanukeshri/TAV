@@ -1,7 +1,7 @@
 package com.example.teachablevoice.bridge
 
+import com.example.teachablevoice.ui.LaunchableApp
 import com.example.teachablevoice.agent.UiState
-import com.example.teachablevoice.LaunchableApp
 
 enum class Direction { UP, DOWN, LEFT, RIGHT }
 enum class Result { SUCCESS, FAILURE }

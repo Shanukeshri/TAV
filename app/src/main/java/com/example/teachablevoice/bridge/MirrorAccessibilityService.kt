@@ -1,4 +1,4 @@
-package com.example.teachablevoice
+package com.example.teachablevoice.bridge
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
@@ -20,8 +20,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import com.example.teachablevoice.agent.AgentOverlayManager
 import com.example.teachablevoice.voice.VoiceListeningOverlayManager
-import com.example.teachablevoice.voice.VoiceListenerState
-import com.example.teachablevoice.voice.VoiceStateRepository
+import com.example.teachablevoice.core.VoiceListenerState
+import com.example.teachablevoice.core.VoiceStateRepository
 import kotlinx.coroutines.flow.collectLatest
 
 class MirrorAccessibilityService : AccessibilityService() {

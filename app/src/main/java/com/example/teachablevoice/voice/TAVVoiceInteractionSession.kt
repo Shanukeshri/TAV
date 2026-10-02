@@ -2,6 +2,9 @@ package com.example.teachablevoice.voice
 
 import android.content.Context
 import android.content.Intent
+import com.example.teachablevoice.router.AgentRequestRouter
+import com.example.teachablevoice.core.VoiceStateRepository
+import com.example.teachablevoice.core.VoiceListenerState
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -174,6 +177,7 @@ class TAVVoiceInteractionSession(context: Context) : VoiceInteractionSession(con
 
     private fun launchAgent(request: AgentRequestRouter.AgentRequest) {
         val intent = Intent(context, AgentForegroundService::class.java).apply {
+            putExtra(AgentForegroundService.EXTRA_INTENT, request.intent)
             putExtra(AgentForegroundService.EXTRA_OBJECTIVE, request.task)
             putExtra(AgentForegroundService.EXTRA_TARGET_APP, request.targetApp)
         }

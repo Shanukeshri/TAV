@@ -2,13 +2,18 @@ package com.example.teachablevoice.agent
 
 import android.util.Log
 import com.example.teachablevoice.model.ModelBackend
+import com.example.teachablevoice.bridge.UiMirrorRepository
 import com.example.teachablevoice.bridge.AutomationBridge
 import com.example.teachablevoice.bridge.Direction
+import com.example.teachablevoice.memory.WorkflowMemoryManager
+import com.example.teachablevoice.memory.WorkflowStep
+import com.example.teachablevoice.memory.WorkflowMemory
 import kotlinx.coroutines.delay
 
 class AgentController(
     private val model: ModelBackend,
-    private val bridge: AutomationBridge
+    private val bridge: AutomationBridge,
+    private val memoryManager: WorkflowMemoryManager
 ) {
     private val state = AgentStateRepository.globalState
     private val loopDetector = LoopDetector(state)
@@ -38,6 +43,19 @@ class AgentController(
 
             // Give the target app time to fully render
             delay(2000)
+            
+            var retrievedWorkflow: WorkflowMemory? = null
+            if (goal.intent != "TEACH") {
+                state.appendLog("MEMORY", "Searching for related workflows…")
+                retrievedWorkflow = memoryManager.retrieveWorkflow(goal.objective)
+                if (retrievedWorkflow != null) {
+                    state.appendLog("MEMORY", "Found similar workflow: \${retrievedWorkflow.task}")
+                } else {
+                    state.appendLog("MEMORY", "No prior knowledge found.")
+                }
+            } else {
+                state.appendLog("TEACH", "Recording workflow for generalization later.")
+            }
 
             // Step 2: Observe initial UI
             state.appendLog("OBSERVE", "Waiting for UI…")
@@ -58,7 +76,7 @@ class AgentController(
                 val stepNum = state.stepCount
                 
                 // Build Context
-                val prompt = buildPrompt(goal, currentState, state)
+                val prompt = buildPrompt(goal, currentState, state, retrievedWorkflow)
                 state.appendLog("MODEL", "Step $stepNum: Sending prompt (${currentState.elements.size} elements)…")
                 
                 // Model generates action
@@ -87,6 +105,16 @@ class AgentController(
                     state.appendLog("DONE", "Goal achieved! ✓")
                     state.status = AgentStatus.COMPLETED
                     state.statusMessage = "Goal achieved"
+                    
+                    if (goal.intent == "TEACH") {
+                        state.appendLog("LEARNER", "Saving successful trajectory…")
+                        val steps = state.history.filter { it.result == TransitionResult.SUCCESS }.map { 
+                            WorkflowStep(it.action.action.name, it.action.elementId, it.action.value, it.action.direction) 
+                        }
+                        memoryManager.saveWorkflow(goal.app, goal.objective, steps)
+                        state.appendLog("LEARNER", "Workflow saved successfully.")
+                    }
+                    
                     break
                 }
                 if (action.action == ActionType.ASK) {
@@ -178,12 +206,22 @@ class AgentController(
         }
     }
     
-    private fun buildPrompt(goal: Goal, uiState: UiState, agentState: AgentState): String {
+    private fun buildPrompt(goal: Goal, uiState: UiState, agentState: AgentState, priorKnowledge: WorkflowMemory?): String {
+        val workflowHint = if (priorKnowledge != null) {
+            """
+            
+            PRIOR KNOWLEDGE:
+            We have successfully completed a similar task before. The steps taken were:
+            ${priorKnowledge.steps.joinToString("\n") { "- Action: ${it.action}, Element: ${it.elementId ?: "none"}, Value: ${it.value ?: "none"}" }}
+            Use this as a strong hint to achieve the current goal, adapting element IDs or values if necessary.
+            """
+        } else ""
+
         return """
             GOAL: ${goal.objective}
             
             CURRENT APP: ${uiState.app}
-            CURRENT STATE: ${uiState.fingerprint}
+            CURRENT STATE: ${uiState.fingerprint}$workflowHint
             
             ELEMENTS:
             ${uiState.elements.joinToString("\n") { "- id: ${it.id}, role: ${it.role}, label: '${it.label}', hint: '${it.hint}', editable: ${it.isEditable}, actions: ${it.actions}" }}

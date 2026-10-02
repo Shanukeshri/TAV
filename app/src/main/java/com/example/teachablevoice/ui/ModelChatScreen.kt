@@ -1,4 +1,4 @@
-package com.example.teachablevoice
+package com.example.teachablevoice.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*

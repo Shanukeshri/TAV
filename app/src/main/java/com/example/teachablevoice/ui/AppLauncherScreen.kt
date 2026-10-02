@@ -1,4 +1,4 @@
-package com.example.teachablevoice
+package com.example.teachablevoice.ui
 
 import android.content.Context
 import android.content.Intent

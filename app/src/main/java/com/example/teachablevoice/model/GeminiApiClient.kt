@@ -35,7 +35,7 @@ class GeminiApiClient(
         private const val BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/"
         private const val CONNECT_TIMEOUT_MS = 15_000
         private const val READ_TIMEOUT_MS = 30_000
-        private const val EMBEDDING_MODEL_ID = "text-embedding-004"
+        private const val EMBEDDING_MODEL_ID = "gemini-embedding-001"
     }
 
     /**

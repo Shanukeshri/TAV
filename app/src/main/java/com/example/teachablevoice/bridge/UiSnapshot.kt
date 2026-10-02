@@ -1,4 +1,4 @@
-package com.example.teachablevoice
+package com.example.teachablevoice.bridge
 
 /**
  * Represents a frozen state of a third-party application's UI.
