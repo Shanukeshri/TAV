@@ -1,0 +1,44 @@
+
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# ──────────────────────────────────────────────
+# Secrets — API keys must NOT be committed
+# ──────────────────────────────────────────────
+.env
+*.env
+secrets.properties
+
+# ──────────────────────────────────────────────
+# Local AI models (large binary files)
+# ──────────────────────────────────────────────
+/models/
+/app/models/
+/model/
+*.gguf
+*.bin
+*.safetensors
+*.onnx
+
+# ──────────────────────────────────────────────
+# Build outputs
+# ──────────────────────────────────────────────
+/app/build/
+*.apk
+*.aab
+
+.idea/vcs.xml
+.idea/
