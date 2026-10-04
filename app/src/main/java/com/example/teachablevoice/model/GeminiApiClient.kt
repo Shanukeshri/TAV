@@ -172,20 +172,23 @@ class GeminiApiClient(
     private fun parseResponse(responseJson: String): String {
         try {
             val json = JSONObject(responseJson)
-            val candidates = json.getJSONArray("candidates")
-            if (candidates.length() == 0) {
-                throw RuntimeException("Gemini API returned empty candidates")
+            val candidates = json.optJSONArray("candidates")
+            if (candidates == null || candidates.length() == 0) {
+                return ""
             }
 
             val firstCandidate = candidates.getJSONObject(0)
-            val content = firstCandidate.getJSONObject("content")
-            val parts = content.getJSONArray("parts")
+            val content = firstCandidate.optJSONObject("content") ?: return ""
+            val parts = content.optJSONArray("parts") ?: return ""
+            if (parts.length() == 0) {
+                return ""
+            }
             val firstPart = parts.getJSONObject(0)
             
             val text = if (firstPart.has("audioTranscription")) {
-                firstPart.getJSONObject("audioTranscription").getString("text").trim()
+                firstPart.getJSONObject("audioTranscription").optString("text", "").trim()
             } else {
-                firstPart.getString("text").trim()
+                firstPart.optString("text", "").trim()
             }
 
             Log.d(TAG, "Model output: ${text.take(200)}")
@@ -277,7 +280,7 @@ class GeminiApiClient(
             })
         }.toString()
 
-        val url = URL("${BASE_URL}gemini-3.5-transcribe:generateContent?key=$apiKey")
+        val url = URL("${BASE_URL}${model}:generateContent?key=$apiKey")
         val connection = url.openConnection() as HttpURLConnection
         try {
             connection.requestMethod = "POST"

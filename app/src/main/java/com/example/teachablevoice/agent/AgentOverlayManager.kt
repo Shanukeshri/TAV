@@ -48,7 +48,6 @@ class AgentOverlayManager(private val service: AccessibilityService) {
 
     // Sub-views for updating content
     private var statusText: TextView? = null
-    private var stepText: TextView? = null
 
     /**
      * Starts observing agent state and shows/hides the overlay automatically.
@@ -152,7 +151,6 @@ class AgentOverlayManager(private val service: AccessibilityService) {
                     }
                     overlayView = null
                     statusText = null
-                    stepText = null
                     isShowing = false
                 }
                 .start()
@@ -233,15 +231,6 @@ class AgentOverlayManager(private val service: AccessibilityService) {
         }
         topRow.addView(statusText)
 
-        // Step counter: "Step 4"
-        stepText = TextView(ctx).apply {
-            text = "Step 0"
-            setTextColor(Color.parseColor("#7C4DFF"))
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-            typeface = Typeface.DEFAULT_BOLD
-        }
-        topRow.addView(stepText)
-
         root.addView(topRow)
 
         // ── Row 2: Stop button ──
@@ -313,8 +302,6 @@ class AgentOverlayManager(private val service: AccessibilityService) {
             AgentStatus.ASKING -> Color.parseColor("#FFCA28")
             else -> Color.parseColor("#A0A0C0")
         })
-
-        stepText?.text = "Step $step"
     }
 
     // ──────────────────────────────────────────────

@@ -208,7 +208,10 @@ class TAVVoiceInteractionSession(context: Context) : VoiceInteractionSession(con
                         voiceState.transitionTo(VoiceListenerState.ERROR)
                     }
                     
-                    handler.postDelayed({ hide() }, 1000)
+                    handler.postDelayed({ 
+                        voiceState.transitionTo(VoiceListenerState.IDLE)
+                        hide() 
+                    }, 1000)
                     return@collect
                 }
             }

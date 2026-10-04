@@ -8,6 +8,12 @@ import android.os.Handler
 import android.os.Looper
 import android.service.voice.VoiceInteractionService
 import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 
 /**
  * System-managed VoiceInteractionService.
@@ -34,6 +40,7 @@ class TAVVoiceInteractionService : VoiceInteractionService() {
     private val wakeWordManager = WakeWordManager()
     private val handler = Handler(Looper.getMainLooper())
     private var isActive = false
+    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     override fun onReady() {
         super.onReady()
@@ -41,6 +48,16 @@ class TAVVoiceInteractionService : VoiceInteractionService() {
         VoiceStateRepository.globalState.setServiceRunning(true)
         voiceInputManager = VoiceInputManager(this)
         startWakeWordListening()
+        
+        scope.launch {
+            VoiceStateRepository.globalState.stateFlow.collectLatest { state ->
+                if (state.state == VoiceListenerState.IDLE && isActive) {
+                    restartListening()
+                } else if (state.state != VoiceListenerState.IDLE) {
+                    voiceInputManager.stopListening()
+                }
+            }
+        }
     }
 
     override fun onShutdown() {
@@ -49,6 +66,7 @@ class TAVVoiceInteractionService : VoiceInteractionService() {
         VoiceStateRepository.globalState.setServiceRunning(false)
         stopWakeWordListening()
         voiceInputManager.destroy()
+        scope.cancel()
     }
 
     private fun startWakeWordListening() {
@@ -94,16 +112,17 @@ class TAVVoiceInteractionService : VoiceInteractionService() {
     }
 
     private fun restartListening() {
-        if (!isActive) return
+        if (!isActive || VoiceStateRepository.globalState.current.state != VoiceListenerState.IDLE) return
         handler.postDelayed({
-            if (isActive) {
+            if (isActive && VoiceStateRepository.globalState.current.state == VoiceListenerState.IDLE) {
                 voiceInputManager.startListening()
             }
         }, RESTART_DELAY_MS)
     }
 
     private fun launchSession() {
-        // Stop our own STT to yield microphone to the session
+        // Transition state first so restartListening aborts
+        VoiceStateRepository.globalState.transitionTo(VoiceListenerState.LISTENING)
         voiceInputManager.stopListening()
         
         // Android API to show the interaction session

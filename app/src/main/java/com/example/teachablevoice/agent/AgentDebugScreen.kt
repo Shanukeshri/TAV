@@ -143,7 +143,6 @@ fun AgentDebugScreen() {
 
         // ── Stats row ──
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            StatBox("STEPS", "${agentState.stepCount}/30", Modifier.weight(1f))
             StatBox("BACK", "${agentState.backtracks}", Modifier.weight(1f))
             StatBox("VISITED", "${agentState.visitedStates.size}", Modifier.weight(1f))
             StatBox("FAILED", "${agentState.history.count { it.result == TransitionResult.FAILED }}", Modifier.weight(1f))
