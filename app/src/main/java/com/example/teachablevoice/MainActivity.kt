@@ -122,63 +122,77 @@ fun MirrorApp() {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(BgGradientTop, BgGradientBottom)))
+            .background(Color.Black)
     ) {
-        Column(modifier = Modifier.fillMaxSize().systemBarsPadding()) {
-            MirrorHeader(isServiceRunning, snapshot, viewMode, showOverlay,
-                currentScreen = currentScreen,
-                onViewModeToggle = {
-                    viewMode = if (viewMode == MirrorViewMode.Screenshot) MirrorViewMode.Tree
-                    else MirrorViewMode.Screenshot
-                },
-                onOverlayToggle = { showOverlay = !showOverlay }
-            )
-
-            // ── Voice Service Toggle Bar ──
-            VoiceServiceBar(
-                isVoiceActive = isVoiceActive,
-                voiceState = voiceState.state,
+        if (!isServiceRunning || !hasAudioPermission || !isVoiceActive) {
+            ServiceSetupScreen(
+                isServiceRunning = isServiceRunning,
                 hasAudioPermission = hasAudioPermission,
-                onToggleVoice = {
-                    if (!hasAudioPermission) {
-                        permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                    } else {
-                        // Open Android settings to set the default assistant
-                        val intent = Intent(Settings.ACTION_VOICE_INPUT_SETTINGS).apply {
-                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                        }
-                        context.startActivity(intent)
+                isVoiceActive = isVoiceActive,
+                onRequestAudioPermission = { permissionLauncher.launch(Manifest.permission.RECORD_AUDIO) },
+                onSetDefaultAssistant = {
+                    val intent = Intent(Settings.ACTION_VOICE_INPUT_SETTINGS).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
                     }
+                    context.startActivity(intent)
                 }
             )
+        } else {
+            Column(modifier = Modifier.fillMaxSize().systemBarsPadding()) {
+                MirrorHeader(isServiceRunning, snapshot, viewMode, showOverlay,
+                    currentScreen = currentScreen,
+                    onViewModeToggle = {
+                        viewMode = if (viewMode == MirrorViewMode.Screenshot) MirrorViewMode.Tree
+                        else MirrorViewMode.Screenshot
+                    },
+                    onOverlayToggle = { showOverlay = !showOverlay }
+                )
 
-            // Main content area
-            Box(modifier = Modifier.weight(1f)) {
-                when (currentScreen) {
-                    AppScreen.Mirror -> {
-                        when {
-                            !isServiceRunning -> ServiceSetupScreen()
-                            snapshot == null -> WaitingScreen()
-                            else -> MirrorScreen(snapshot!!, screenshot, viewMode, showOverlay)
+                // ── Voice Service Toggle Bar ──
+                VoiceServiceBar(
+                    isVoiceActive = isVoiceActive,
+                    voiceState = voiceState.state,
+                    hasAudioPermission = hasAudioPermission,
+                    onToggleVoice = {
+                        if (!hasAudioPermission) {
+                            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        } else {
+                            // Open Android settings to set the default assistant
+                            val intent = Intent(Settings.ACTION_VOICE_INPUT_SETTINGS).apply {
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            }
+                            context.startActivity(intent)
                         }
                     }
-                    AppScreen.Apps -> {
-                        AppLauncherScreen()
-                    }
-                    AppScreen.Model -> {
-                        ModelChatScreen()
-                    }
-                    AppScreen.Debug -> {
-                        com.example.teachablevoice.agent.AgentDebugScreen()
+                )
+
+                // Main content area
+                Box(modifier = Modifier.weight(1f)) {
+                    when (currentScreen) {
+                        AppScreen.Mirror -> {
+                            when {
+                                snapshot == null -> WaitingScreen()
+                                else -> MirrorScreen(snapshot!!, screenshot, viewMode, showOverlay)
+                            }
+                        }
+                        AppScreen.Apps -> {
+                            AppLauncherScreen()
+                        }
+                        AppScreen.Model -> {
+                            ModelChatScreen()
+                        }
+                        AppScreen.Debug -> {
+                            com.example.teachablevoice.agent.AgentDebugScreen()
+                        }
                     }
                 }
+
+                // Bottom navigation bar
+                BottomNavBar(
+                    currentScreen = currentScreen,
+                    onScreenChange = { currentScreen = it }
+                )
             }
-
-            // Bottom navigation bar
-            BottomNavBar(
-                currentScreen = currentScreen,
-                onScreenChange = { currentScreen = it }
-            )
         }
 
         // Text input dialog overlay (shown when user taps an editable field)
@@ -535,72 +549,61 @@ fun StatusPill(isActive: Boolean) {
 // ──────────────────────────────────────────────
 
 @Composable
-fun ServiceSetupScreen() {
+fun ServiceSetupScreen(
+    isServiceRunning: Boolean,
+    hasAudioPermission: Boolean,
+    isVoiceActive: Boolean,
+    onRequestAudioPermission: () -> Unit,
+    onSetDefaultAssistant: () -> Unit
+) {
     val context = LocalContext.current
     Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
+        modifier = Modifier.fillMaxSize().padding(24.dp).background(Color.Black),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        val infiniteTransition = rememberInfiniteTransition(label = "float")
-        val offsetY by infiniteTransition.animateFloat(
-            initialValue = -8f, targetValue = 8f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(2000, easing = FastOutSlowInEasing),
-                repeatMode = RepeatMode.Reverse
-            ), label = "float_y"
-        )
-        Text("🔮", fontSize = 64.sp, modifier = Modifier.offset(y = offsetY.dp))
-        Spacer(modifier = Modifier.height(24.dp))
-        Text("Enable Accessibility Service", color = TextPrimary, fontSize = 22.sp,
-            fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-        Spacer(modifier = Modifier.height(12.dp))
-        Text("Mirror UI needs accessibility access to read and interact with other apps.",
-            color = TextSecondary, fontSize = 14.sp, textAlign = TextAlign.Center,
-            lineHeight = 22.sp, modifier = Modifier.padding(horizontal = 16.dp))
-        Spacer(modifier = Modifier.height(32.dp))
-
-        SetupStepCard("1", "Open Accessibility Settings", "Tap the button below")
-        Spacer(modifier = Modifier.height(8.dp))
-        SetupStepCard("2", "Find \"Mirror UI\"", "Under Downloaded/Installed services")
-        Spacer(modifier = Modifier.height(8.dp))
-        SetupStepCard("3", "Toggle it ON", "Confirm the permission dialog")
-        Spacer(modifier = Modifier.height(32.dp))
-
-        Box(
-            modifier = Modifier.fillMaxWidth().height(52.dp)
-                .shadow(8.dp, RoundedCornerShape(14.dp))
-                .clip(RoundedCornerShape(14.dp))
-                .background(Brush.horizontalGradient(listOf(AccentPurple, AccentBlue)))
-                .clickable {
-                    context.startActivity(
-                        Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    )
-                },
-            contentAlignment = Alignment.Center
-        ) {
-            Text("Open Accessibility Settings", color = Color.White,
-                fontWeight = FontWeight.Bold, fontSize = 15.sp)
+        if (!hasAudioPermission || !isVoiceActive) {
+            Box(
+                modifier = Modifier.fillMaxWidth().height(52.dp)
+                    .background(Color.Black, RoundedCornerShape(14.dp))
+                    .border(2.dp, Color.Blue, RoundedCornerShape(14.dp))
+                    .clip(RoundedCornerShape(14.dp))
+                    .clickable {
+                        if (!hasAudioPermission) {
+                            onRequestAudioPermission()
+                        } else {
+                            onSetDefaultAssistant()
+                        }
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = if (!hasAudioPermission) "Grant Microphone Permission" else "Set TAV as Default Assistant",
+                    color = Color.Blue,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp
+                )
+            }
+            Spacer(modifier = Modifier.height(24.dp))
         }
-    }
-}
 
-@Composable
-fun SetupStepCard(stepNumber: String, title: String, description: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(CardBg)
-            .border(1.dp, CardBorder, RoundedCornerShape(12.dp)).padding(14.dp),
-        verticalAlignment = Alignment.Top
-    ) {
-        Box(modifier = Modifier.size(28.dp).clip(CircleShape).background(AccentPurple),
-            contentAlignment = Alignment.Center) {
-            Text(stepNumber, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-        }
-        Spacer(modifier = Modifier.width(12.dp))
-        Column {
-            Text(title, color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-            Text(description, color = TextMuted, fontSize = 12.sp, lineHeight = 16.sp)
+        if (!isServiceRunning) {
+            Box(
+                modifier = Modifier.fillMaxWidth().height(52.dp)
+                    .background(Color.Black, RoundedCornerShape(14.dp))
+                    .border(2.dp, Color.Blue, RoundedCornerShape(14.dp))
+                    .clip(RoundedCornerShape(14.dp))
+                    .clickable {
+                        context.startActivity(
+                            Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Text("Open Accessibility Settings", color = Color.Blue,
+                    fontWeight = FontWeight.Bold, fontSize = 15.sp)
+            }
         }
     }
 }
