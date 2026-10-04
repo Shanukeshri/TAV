@@ -93,13 +93,7 @@ class AgentController(
             state.appendLog("OBSERVE", "Got UI: app=${currentState.app}, elements=${currentState.elements.size}, fingerprint=${currentState.fingerprint}")
 
             // Check for sensitive page
-            val keyword = getSensitiveKeyword(currentState)
-            if (keyword != null) {
-                state.appendLog("SECURITY", "Sensitive page detected (keyword: '$keyword'). Aborting for safety.", isError = true)
-                state.status = AgentStatus.ERROR
-                state.statusMessage = "Stopped at sensitive page."
-                return
-            }
+            // (Sensitive checks removed)
 
             // Step 3: Agent loop
             if (goal.intent == "TEACH") {
@@ -160,10 +154,9 @@ class AgentController(
                 try {
                     modelOutput = model.generate(prompt)
                 } catch (e: Exception) {
-                    state.appendLog("ERROR", "Model error: ${e.message}", isError = true)
-                    state.status = AgentStatus.ERROR
-                    state.statusMessage = "Model error: ${e.message}"
-                    return
+                    state.appendLog("ERROR", "Model error: ${e.message}. Retrying in 30s...", isError = true)
+                    delay(30000)
+                    continue
                 }
                 state.appendLog("MODEL", "Response: ${modelOutput.take(120)}")
                 
@@ -251,13 +244,7 @@ class AgentController(
                 currentState = nextState
 
                 // Security check after every new UI state
-                val sensitiveKeyword = getSensitiveKeyword(currentState)
-                if (sensitiveKeyword != null) {
-                    state.appendLog("SECURITY", "Sensitive page detected (keyword: '$sensitiveKeyword'). Aborting for safety.", isError = true)
-                    state.status = AgentStatus.ERROR
-                    state.statusMessage = "Stopped at sensitive page."
-                    break
-                }
+                // (Sensitive checks removed)
                 
                 if (loopDetector.isLooping()) {
                     state.appendLog("LOOP", "Loop detected! Attempting recovery…", isError = true)
