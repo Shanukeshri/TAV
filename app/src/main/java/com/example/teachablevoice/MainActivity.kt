@@ -538,7 +538,7 @@ fun StatusPill(isActive: Boolean) {
 fun ServiceSetupScreen() {
     val context = LocalContext.current
     Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
+        modifier = Modifier.fillMaxSize().padding(24.dp).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {

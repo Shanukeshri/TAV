@@ -26,6 +26,7 @@ sealed class InteractionCommand {
     data class Click(val nodeId: String) : InteractionCommand()
     data class LongClick(val nodeId: String) : InteractionCommand()
     data class SetText(val nodeId: String, val text: String) : InteractionCommand()
+    data class Enter(val nodeId: String) : InteractionCommand()
     data class ScrollForward(val nodeId: String) : InteractionCommand()
     data class ScrollBackward(val nodeId: String) : InteractionCommand()
     data class ToggleCheck(val nodeId: String) : InteractionCommand()
@@ -73,6 +74,10 @@ object MirrorInteractionController {
 
     fun requestSetText(nodeId: String, text: String) {
         _commands.tryEmit(InteractionCommand.SetText(nodeId, text))
+    }
+
+    fun requestEnter(nodeId: String) {
+        _commands.tryEmit(InteractionCommand.Enter(nodeId))
     }
 
     fun requestScrollForward(nodeId: String) {

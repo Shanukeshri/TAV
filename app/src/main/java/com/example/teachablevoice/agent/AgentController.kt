@@ -2,13 +2,16 @@ package com.example.teachablevoice.agent
 
 import android.util.Log
 import com.example.teachablevoice.model.ModelBackend
-import com.example.teachablevoice.bridge.UiMirrorRepository
 import com.example.teachablevoice.bridge.AutomationBridge
 import com.example.teachablevoice.bridge.Direction
 import com.example.teachablevoice.memory.WorkflowMemoryManager
 import com.example.teachablevoice.memory.WorkflowStep
 import com.example.teachablevoice.memory.WorkflowMemory
+import com.example.teachablevoice.teach.TeachSession
+import com.example.teachablevoice.teach.WorkflowGeneralizer
+import com.example.teachablevoice.replay.WorkflowReplayer
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 class AgentController(
     private val model: ModelBackend,
@@ -19,7 +22,8 @@ class AgentController(
     private val loopDetector = LoopDetector(state)
     private val recoveryManager = RecoveryManager(bridge, state)
     private val validator = ActionValidator()
-    
+    private val replayer = WorkflowReplayer(bridge)
+
     suspend fun execute(goal: Goal) {
         state.reset()
         state.currentGoal = goal
@@ -28,6 +32,11 @@ class AgentController(
         state.resolvedApp = goal.app
         state.appendLog("INIT", "Goal: ${goal.objective}")
         state.appendLog("RESOLVE", "Target app: ${goal.app}")
+
+        // Create a TeachSession if this is a TEACH request
+        val teachSession: TeachSession? = if (goal.intent == "TEACH") {
+            TeachSession(app = goal.app, originalCommand = goal.objective).also { it.start() }
+        } else null
 
         try {
             // Step 1: Open target app
@@ -41,37 +50,104 @@ class AgentController(
             }
             state.appendLog("OPEN_APP", "App launched successfully ✓")
 
-            // Give the target app time to fully render
-            delay(2000)
+            // Wait for initial UI to load
+            var currentState = bridge.waitForUiChange(5000)
+            currentState = dismissPopups(bridge, state, currentState)
             
+            // ──────────────────────────────────────────────
+            // Memory retrieval (only for non-TEACH requests)
+            // ──────────────────────────────────────────────
             var retrievedWorkflow: WorkflowMemory? = null
             if (goal.intent != "TEACH") {
                 state.appendLog("MEMORY", "Searching for related workflows…")
-                retrievedWorkflow = memoryManager.retrieveWorkflow(goal.objective)
+                retrievedWorkflow = memoryManager.retrieveWorkflow(goal.objective, appHint = goal.app)
                 if (retrievedWorkflow != null) {
-                    state.appendLog("MEMORY", "Found similar workflow: \${retrievedWorkflow.task}")
+                    state.appendLog("MEMORY", "Found workflow: '${retrievedWorkflow.task}' " +
+                            "(v${retrievedWorkflow.version}, confidence=${retrievedWorkflow.confidence}, " +
+                            "success=${retrievedWorkflow.successCount})")
+                    
+                    // ──────────────────────────────────────────────
+                    // REPLAY: if workflow has semantic steps, try deterministic replay first
+                    // ──────────────────────────────────────────────
+                    if (retrievedWorkflow.steps.isNotEmpty() && retrievedWorkflow.confidence >= 0.5f) {
+                        val replayResult = attemptReplay(retrievedWorkflow, goal)
+                        if (replayResult.fullyReplayed) {
+                            // Full replay succeeded — update memory and exit
+                            memoryManager.recordSuccess(retrievedWorkflow.id)
+                            state.appendLog("DONE", "Goal achieved via replay! ✓")
+                            state.status = AgentStatus.COMPLETED
+                            state.statusMessage = "Goal achieved (replayed)"
+                            return
+                        }
+                        // Partial replay or fallback — continue with Gemini-assisted loop below
+                        state.appendLog("FALLBACK", "⚡ Replay stopped at step ${replayResult.stoppedAtStep + 1}. Handing full control to Gemini AI.")
+                    }
                 } else {
                     state.appendLog("MEMORY", "No prior knowledge found.")
                 }
             } else {
-                state.appendLog("TEACH", "Recording workflow for generalization later.")
+                state.appendLog("TEACH", "🎓 TEACHING MODE — recording every action for learning.")
             }
 
-            // Step 2: Observe initial UI
-            state.appendLog("OBSERVE", "Waiting for UI…")
-            var currentState = bridge.waitForUiChange(5000)
+            // Step 2: Observe initial UI (already done above)
             state.appendLog("OBSERVE", "Got UI: app=${currentState.app}, elements=${currentState.elements.size}, fingerprint=${currentState.fingerprint}")
 
             // Check for sensitive page
-            if (isSensitivePage(currentState)) {
-                state.appendLog("SECURITY", "Sensitive page detected (e.g. payment, credit card). Aborting for safety.", isError = true)
+            val keyword = getSensitiveKeyword(currentState)
+            if (keyword != null) {
+                state.appendLog("SECURITY", "Sensitive page detected (keyword: '$keyword'). Aborting for safety.", isError = true)
                 state.status = AgentStatus.ERROR
                 state.statusMessage = "Stopped at sensitive page."
                 return
             }
 
             // Step 3: Agent loop
-            while (state.isRunning) {
+            if (goal.intent == "TEACH") {
+                state.appendLog("TEACH", "🎓 TEACHING MODE — Passive observation started. Awaiting your actions.")
+                val actionChannel = kotlinx.coroutines.channels.Channel<Pair<AgentAction, UiState>>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+                val job = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default).launch {
+                    com.example.teachablevoice.teach.UserActionObserver.actions.collect {
+                        actionChannel.send(it)
+                    }
+                }
+                
+                try {
+                    while (state.isRunning) {
+                        val event = kotlinx.coroutines.withTimeoutOrNull(500) { actionChannel.receive() }
+                        if (event != null) {
+                            val (action, uiBefore) = event
+                            state.appendLog("OBSERVE", "User action: ${action.action} ${action.elementId}")
+                            delay(1000) // Wait for UI to settle
+                            val nextState = bridge.getUiState()
+                            teachSession?.recordStep(uiBefore, action, nextState)
+                        }
+                    }
+                } finally {
+                    job.cancel()
+                }
+                
+                if (state.status == AgentStatus.COMPLETED && teachSession != null) {
+                    teachSession.stop()
+                    state.appendLog("LEARNER", "🧠 Generalising ${teachSession.trajectory.size} recorded steps…")
+                    try {
+                        val generalizer = WorkflowGeneralizer(model)
+                        val generalizedWorkflow = generalizer.generalize(teachSession)
+                        if (generalizedWorkflow != null) {
+                            memoryManager.saveGeneralizedWorkflow(generalizedWorkflow)
+                            state.appendLog("LEARNER", "✓ Workflow saved: '${generalizedWorkflow.goal}' (${generalizedWorkflow.steps.size} steps)")
+                        } else {
+                            state.appendLog("LEARNER", "Generalisation returned null, saving raw trajectory", isError = true)
+                            saveFallbackWorkflow(teachSession, goal)
+                        }
+                    } catch (e: Exception) {
+                        state.appendLog("LEARNER", "Generalisation failed: ${e.message}", isError = true)
+                        saveFallbackWorkflow(teachSession, goal)
+                    }
+                }
+            } else {
+                // Agent loop (Gemini-assisted)
+                val zeroShotActions = mutableListOf<Triple<com.example.teachablevoice.agent.AgentAction, com.example.teachablevoice.agent.UiState, com.example.teachablevoice.agent.UiState>>()
+                while (state.isRunning) {
                 state.stepCount++
                 val stepNum = state.stepCount
                 
@@ -106,13 +182,27 @@ class AgentController(
                     state.status = AgentStatus.COMPLETED
                     state.statusMessage = "Goal achieved"
                     
-                    if (goal.intent == "TEACH") {
-                        state.appendLog("LEARNER", "Saving successful trajectory…")
-                        val steps = state.history.filter { it.result == TransitionResult.SUCCESS }.map { 
-                            WorkflowStep(it.action.action.name, it.action.elementId, it.action.value, it.action.direction) 
+                    // For non-TEACH successful executions: also update/learn
+                    if (retrievedWorkflow != null) {
+                        memoryManager.recordSuccess(retrievedWorkflow.id)
+                        state.appendLog("LEARNER", "Workflow confidence updated (success)")
+                    } else if (goal.intent != "TEACH" && zeroShotActions.isNotEmpty()) {
+                        state.appendLog("LEARNER", "🧠 Auto-learning successful zero-shot workflow…")
+                        val dummySession = com.example.teachablevoice.teach.TeachSession(goal.app, goal.objective)
+                        dummySession.start()
+                        for (triple in zeroShotActions) {
+                            dummySession.recordStep(triple.second, triple.first, triple.third)
                         }
-                        memoryManager.saveWorkflow(goal.app, goal.objective, steps)
-                        state.appendLog("LEARNER", "Workflow saved successfully.")
+                        dummySession.stop()
+                        
+                        kotlinx.coroutines.GlobalScope.launch {
+                            val generalizer = com.example.teachablevoice.teach.WorkflowGeneralizer(model)
+                            val genWorkflow = generalizer.generalize(dummySession)
+                            if (genWorkflow != null) {
+                                memoryManager.saveGeneralizedWorkflow(genWorkflow)
+                                state.appendLog("LEARNER", "✓ Learned and saved new zero-shot workflow: '${genWorkflow.goal}'")
+                            }
+                        }
                     }
                     
                     break
@@ -130,6 +220,9 @@ class AgentController(
                     continue
                 }
                 
+                // Capture UI state before action (for teach recording)
+                val uiBeforeAction = currentState
+
                 // Execute Action
                 state.appendLog("EXEC", "Executing: ${action.action} ${action.elementId ?: ""}")
                 executeAction(action)
@@ -146,13 +239,21 @@ class AgentController(
                     TransitionResult.SUCCESS
                 }
                 
+
+
                 state.appendLog("OBSERVE", "Result: $result (${nextState.elements.size} elements, fp=${nextState.fingerprint})")
                 state.recordTransition(Transition(currentState.fingerprint, action, nextState.fingerprint, result))
+                
+                if (result == TransitionResult.SUCCESS) {
+                    zeroShotActions.add(Triple(action, uiBeforeAction, nextState))
+                }
+                
                 currentState = nextState
 
                 // Security check after every new UI state
-                if (isSensitivePage(currentState)) {
-                    state.appendLog("SECURITY", "Sensitive page detected (e.g. payment, credit card). Aborting for safety.", isError = true)
+                val sensitiveKeyword = getSensitiveKeyword(currentState)
+                if (sensitiveKeyword != null) {
+                    state.appendLog("SECURITY", "Sensitive page detected (keyword: '$sensitiveKeyword'). Aborting for safety.", isError = true)
                     state.status = AgentStatus.ERROR
                     state.statusMessage = "Stopped at sensitive page."
                     break
@@ -164,6 +265,10 @@ class AgentController(
                         state.appendLog("ERROR", "Recovery failed. Aborting.", isError = true)
                         state.status = AgentStatus.ERROR
                         state.statusMessage = "Stuck in loop, recovery failed"
+                        // Record failure for the workflow
+                        if (retrievedWorkflow != null) {
+                            memoryManager.recordFailure(retrievedWorkflow.id)
+                        }
                         break
                     }
                     state.appendLog("RECOVERY", "Back pressed, retrying…")
@@ -171,23 +276,91 @@ class AgentController(
                     currentState = bridge.getUiState()
                 }
             }
+            } // end of else block
 
         } catch (e: Exception) {
             state.appendLog("ERROR", "Unhandled: ${e.message}", isError = true)
             state.status = AgentStatus.ERROR
             state.statusMessage = "Error: ${e.message}"
             Log.e("AgentController", "Agent error", e)
+            // Record failure
+            if (goal.intent != "TEACH") {
+                val wf = try { memoryManager.retrieveWorkflow(goal.objective) } catch (_: Exception) { null }
+                if (wf != null) memoryManager.recordFailure(wf.id)
+            }
         } finally {
+            teachSession?.let { if (it.isRecording) it.stop() }
             state.isRunning = false
             state.appendLog("END", "Agent stopped. Status: ${state.status}")
         }
     }
+
+    // ──────────────────────────────────────────────
+    // Replay attempt
+    // ──────────────────────────────────────────────
+
+    /**
+     * Try to replay a known workflow deterministically.
+     * Returns true if the full workflow was replayed successfully.
+     */
+    private suspend fun attemptReplay(
+        workflow: WorkflowMemory,
+        goal: Goal
+    ): com.example.teachablevoice.replay.WorkflowReplayer.ReplayResult {
+        state.appendLog("REPLAY", "⚡ Attempting fast replay of '${workflow.task}'")
+
+        // Build parameter map from the goal's parameters
+        val currentParams = mutableMapOf<String, String>()
+        for ((key, value) in goal.parameters) {
+            currentParams[key] = value.toString()
+        }
+        // Also use the workflow's stored default params as fallback
+        for ((key, value) in workflow.parameters) {
+            if (!currentParams.containsKey(key)) {
+                currentParams[key] = value
+            }
+        }
+
+        val result = replayer.replay(workflow, currentParams, state)
+
+        if (result.fullyReplayed) {
+            state.appendLog("REPLAY", "⚡ Full replay completed! ${result.stepsExecuted} steps, zero LLM calls")
+        } else {
+            state.appendLog("REPLAY", "Partial replay: ${result.stepsExecuted}/${result.totalSteps} steps. " +
+                "Stopped at step ${result.stoppedAtStep + 1}.")
+        }
+        
+        return result
+    }
+
+    // ──────────────────────────────────────────────
+    // Fallback save (when Gemini generalisation fails)
+    // ──────────────────────────────────────────────
+
+    private suspend fun saveFallbackWorkflow(session: TeachSession, goal: Goal) {
+        try {
+            val steps = session.trajectory.filter {
+                it.uiChangedSuccessfully || it.action == "INPUT" || it.action == "DONE"
+            }.map {
+                WorkflowStep(it.action, it.elementId, it.inputValue, it.direction)
+            }
+            memoryManager.saveWorkflow(goal.app, goal.objective, steps)
+            state.appendLog("LEARNER", "Fallback: saved ${steps.size} raw steps.")
+        } catch (e: Exception) {
+            state.appendLog("LEARNER", "Failed even fallback save: ${e.message}", isError = true)
+        }
+    }
+
+    // ──────────────────────────────────────────────
+    // Action execution (unchanged)
+    // ──────────────────────────────────────────────
     
     private suspend fun executeAction(action: AgentAction) {
         when (action.action) {
             ActionType.CLICK -> bridge.click(action.elementId!!)
             ActionType.LONG_CLICK -> bridge.longClick(action.elementId!!)
             ActionType.INPUT -> bridge.input(action.elementId!!, action.value!!)
+            ActionType.ENTER -> bridge.enter(action.elementId!!)
             ActionType.SCROLL -> bridge.scroll(action.elementId, Direction.valueOf(action.direction ?: "DOWN"))
             ActionType.SWIPE -> {
                 val dir = action.direction?.uppercase() ?: "UP"
@@ -208,12 +381,38 @@ class AgentController(
     
     private fun buildPrompt(goal: Goal, uiState: UiState, agentState: AgentState, priorKnowledge: WorkflowMemory?): String {
         val workflowHint = if (priorKnowledge != null) {
+            // Build runtime parameters: merge workflow defaults with goal overrides
+            val runtimeParams = priorKnowledge.parameters.toMutableMap()
+            for ((key, value) in goal.parameters) {
+                runtimeParams[key] = value.toString()
+            }
+
+            val stepsDesc = priorKnowledge.steps.mapIndexed { index, step ->
+                var inputDesc = step.inputTemplate ?: "none"
+                // Substitute runtime parameters into the description
+                for ((key, value) in runtimeParams) {
+                    inputDesc = inputDesc.replace("{{$key}}", value)
+                }
+                "  Step ${index + 1}: ${step.action} " +
+                "target=[role=${step.targetRole ?: "?"}, label='${step.targetLabel ?: "?"}', " +
+                "hint='${step.targetHint ?: ""}'] " +
+                "input=$inputDesc"
+            }.joinToString("\n")
+
+            val paramsDesc = if (runtimeParams.isNotEmpty()) {
+                "\nRuntime Parameters: ${runtimeParams.entries.joinToString(", ") { "${it.key}=${it.value}" }}"
+            } else ""
+
             """
             
-            PRIOR KNOWLEDGE:
-            We have successfully completed a similar task before. The steps taken were:
-            ${priorKnowledge.steps.joinToString("\n") { "- Action: ${it.action}, Element: ${it.elementId ?: "none"}, Value: ${it.value ?: "none"}" }}
-            Use this as a strong hint to achieve the current goal, adapting element IDs or values if necessary.
+            LEARNED WORKFLOW (MUST FOLLOW):
+            You have a previously learned workflow for this exact task. You MUST follow these steps in order.
+            Find the matching UI elements on screen and execute each step sequentially.
+            If a step's label doesn't exactly match, find the closest matching element.
+            $stepsDesc$paramsDesc
+            
+            IMPORTANT: Follow this workflow step-by-step. Do NOT deviate from it.
+            Replace any {{parameter}} placeholders with the runtime values above.
             """
         } else ""
 
@@ -239,7 +438,8 @@ class AgentController(
             - Output ONLY a valid JSON object.
             - Do not include any reasoning or markdown wrapping.
             - Format: {"action": "CLICK", "element_id": "id123"}
-            - Allowed actions: OPEN_APP, CLICK, LONG_CLICK, INPUT, SCROLL, SWIPE, BACK, HOME, RECENTS, NOTIFICATIONS, WAIT, DONE, ASK
+            - Allowed actions: OPEN_APP, CLICK, LONG_CLICK, INPUT, SCROLL, SWIPE, BACK, HOME, RECENTS, NOTIFICATIONS, WAIT, DONE, ASK, ENTER
+            - To simulate pressing the "Enter" or "Search" key on the soft keyboard (e.g. after typing a search query), use {"action": "ENTER", "element_id": "the_text_field_id"}.
             - For SWIPE and SCROLL, optionally provide "direction" (UP, DOWN, LEFT, RIGHT).
             - Do not repeat a failed action.
             - If dead end, choose BACK.
@@ -247,17 +447,44 @@ class AgentController(
         """.trimIndent()
     }
     
-    private fun isSensitivePage(uiState: UiState): Boolean {
+    private fun getSensitiveKeyword(uiState: UiState): String? {
         val sensitiveKeywords = listOf("credit card", "cvv", "upi pin", "enter your pin", "password", "card number", "payment details", "bank account")
         for (element in uiState.elements) {
             val text = element.label.lowercase()
             val hint = element.hint.lowercase()
             for (keyword in sensitiveKeywords) {
                 if (text.contains(keyword) || hint.contains(keyword)) {
-                    return true
+                    return keyword
                 }
             }
         }
-        return false
+        return null
+    }
+
+    private suspend fun dismissPopups(bridge: com.example.teachablevoice.bridge.AutomationBridge, state: AgentState, initialUi: UiState): UiState {
+        var currentUi = initialUi
+        val popupKeywords = listOf("close", "skip", "not now", "no thanks", "dismiss", "x", "maybe later")
+        
+        for (i in 0..1) { // Try up to 2 times
+            var dismissedSomething = false
+            for (element in currentUi.elements) {
+                if (!element.actions.contains("click") && !element.actions.contains("CLICK")) continue
+                
+                val text = element.label.lowercase().trim()
+                val hint = element.hint.lowercase().trim()
+                
+                if (text in popupKeywords || hint in popupKeywords) {
+                    state.appendLog("DISMISS", "Detected potential popup button: '${element.label ?: element.hint}'. Clicking to dismiss.")
+                    bridge.click(element.id)
+                    currentUi = bridge.waitForUiChange(3000)
+                    dismissedSomething = true
+                    break
+                }
+            }
+            if (!dismissedSomething) {
+                break
+            }
+        }
+        return currentUi
     }
 }

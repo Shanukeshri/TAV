@@ -80,6 +80,7 @@ class MirrorAccessibilityService : AccessibilityService() {
             is InteractionCommand.ScrollForward -> handleAction(command.nodeId, AccessibilityNodeInfo.ACTION_SCROLL_FORWARD, "ScrollForward")
             is InteractionCommand.ScrollBackward -> handleAction(command.nodeId, AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD, "ScrollBackward")
             is InteractionCommand.SetText -> handleSetText(command.nodeId, command.text)
+            is InteractionCommand.Enter -> handleAction(command.nodeId, android.R.id.accessibilityActionImeEnter, "Enter")
             is InteractionCommand.ToggleCheck -> handleAction(command.nodeId, AccessibilityNodeInfo.ACTION_CLICK, "Toggle")
             is InteractionCommand.CoordinateTap -> handleCoordinateTap(command.screenX, command.screenY)
             is InteractionCommand.CoordinateLongPress -> handleCoordinateLongPress(command.screenX, command.screenY)
@@ -297,6 +298,15 @@ class MirrorAccessibilityService : AccessibilityService() {
     // Node-ID-based actions (tree mode)
     // ──────────────────────────────────────────────
 
+    private fun findNodeByBounds(root: com.example.teachablevoice.bridge.NormalizedNode, bounds: android.graphics.Rect): com.example.teachablevoice.bridge.NormalizedNode? {
+        if (root.bounds == bounds) return root
+        for (child in root.children) {
+            val found = findNodeByBounds(child, bounds)
+            if (found != null) return found
+        }
+        return null
+    }
+
     private fun handleAction(nodeId: String, actionId: Int, actionName: String) {
         val currentSnapshot = UiMirrorRepository.snapshotFlow.value
         if (currentSnapshot == null) {
@@ -403,6 +413,68 @@ class MirrorAccessibilityService : AccessibilityService() {
         val packageName = event.packageName?.toString() ?: "unknown"
 
         if (isIgnoredPackage(packageName)) return
+
+        // ── Teach Mode Interaction Capture ──
+        val isTeachMode = com.example.teachablevoice.agent.AgentStateRepository.globalState.currentGoal?.intent == "TEACH"
+        
+        if (isTeachMode && event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) {
+            val windowType = event.source?.window?.type
+            val isKeyboard = windowType == android.view.accessibility.AccessibilityWindowInfo.TYPE_INPUT_METHOD || 
+                             packageName.contains("inputmethod") || 
+                             packageName.contains("keyboard") || 
+                             packageName.contains("gboard") || 
+                             packageName.contains("swiftkey")
+            
+            if (isKeyboard) {
+                serviceScope.launch {
+                    val bridge = AutomationBridgeImpl(this@MirrorAccessibilityService)
+                    val uiState = bridge.getUiState()
+                    val action = com.example.teachablevoice.agent.AgentAction(
+                        action = com.example.teachablevoice.agent.ActionType.ENTER,
+                        elementId = "keyboard_enter"
+                    )
+                    com.example.teachablevoice.teach.UserActionObserver.emit(action, uiState)
+                    Log.d(TAG_INTERACTION, "Captured soft keyboard ENTER in teach mode")
+                }
+                return
+            }
+        }
+
+        val snapshot = UiMirrorRepository.snapshotFlow.value
+        if (snapshot != null && snapshot.packageName == packageName) {
+            val isTeachMode = com.example.teachablevoice.agent.AgentStateRepository.globalState.currentGoal?.intent == "TEACH"
+            if (isTeachMode) {
+                if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED || event.eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED) {
+                    val source = event.source
+                    if (source != null) {
+                        serviceScope.launch {
+                            val bridge = AutomationBridgeImpl(this@MirrorAccessibilityService)
+                            val uiState = bridge.getUiState()
+                            val bounds = android.graphics.Rect()
+                            source.getBoundsInScreen(bounds)
+
+                            val actionType = if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED)
+                                com.example.teachablevoice.agent.ActionType.CLICK
+                            else
+                                com.example.teachablevoice.agent.ActionType.INPUT
+
+                            val value = if (event.eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED) event.text.joinToString("") else null
+
+                            val matchedNode = findNodeByBounds(snapshot.rootNode, bounds)
+                            val elementId = matchedNode?.id ?: "unknown"
+
+                            val action = com.example.teachablevoice.agent.AgentAction(
+                                action = actionType,
+                                elementId = elementId,
+                                value = value
+                            )
+
+                            com.example.teachablevoice.teach.UserActionObserver.emit(action, uiState)
+                        }
+                    }
+                }
+            }
+        }
 
         // ── THROTTLE ──
         val now = System.currentTimeMillis()

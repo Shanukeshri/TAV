@@ -76,6 +76,11 @@ class AutomationBridgeImpl(private val context: Context) : AutomationBridge {
         return Result.SUCCESS
     }
 
+    override suspend fun enter(elementId: String): Result {
+        MirrorInteractionController.requestEnter(elementId)
+        return Result.SUCCESS
+    }
+
     override suspend fun scroll(containerId: String?, direction: Direction): Result {
         val id = containerId ?: return Result.FAILURE
         when (direction) {

@@ -11,6 +11,7 @@ interface AutomationBridge {
     suspend fun getUiState(): UiState
     suspend fun click(elementId: String): Result
     suspend fun input(elementId: String, value: String): Result
+    suspend fun enter(elementId: String): Result
     suspend fun scroll(containerId: String?, direction: Direction): Result
     suspend fun swipe(startX: Float, startY: Float, endX: Float, endY: Float): Result
     suspend fun longClick(elementId: String): Result

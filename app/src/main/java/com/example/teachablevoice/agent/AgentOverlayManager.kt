@@ -105,7 +105,7 @@ class AgentOverlayManager(private val service: AccessibilityService) {
                 // without SYSTEM_ALERT_WINDOW permission
                 type = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
                 format = PixelFormat.TRANSLUCENT
-                gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+                gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
                 flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                         WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                         WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
@@ -118,8 +118,8 @@ class AgentOverlayManager(private val service: AccessibilityService) {
             wm.addView(panel, params)
             isShowing = true
 
-            // Slide-up entrance animation
-            panel.translationY = 200f
+            // Slide-down entrance animation
+            panel.translationY = -200f
             panel.animate()
                 .translationY(0f)
                 .setDuration(300)
@@ -139,9 +139,9 @@ class AgentOverlayManager(private val service: AccessibilityService) {
             val view = overlayView ?: return
             val wm = service.getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
-            // Slide-down exit animation
+            // Slide-up exit animation
             view.animate()
-                .translationY(200f)
+                .translationY(-200f)
                 .alpha(0f)
                 .setDuration(250)
                 .withEndAction {
@@ -171,20 +171,21 @@ class AgentOverlayManager(private val service: AccessibilityService) {
     private fun createOverlayPanel(): View {
         val ctx = service
 
-        // Root container with rounded top corners and semi-transparent dark background
+        // Root container with rounded bottom corners and semi-transparent dark background
         val root = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
             val bg = GradientDrawable().apply {
                 setColor(Color.parseColor("#E6101020"))  // 90% opaque dark blue-black
                 cornerRadii = floatArrayOf(
-                    dp(16f), dp(16f),  // top-left
-                    dp(16f), dp(16f),  // top-right
-                    0f, 0f,            // bottom-right
-                    0f, 0f             // bottom-left
+                    0f, 0f,            // top-left
+                    0f, 0f,            // top-right
+                    dp(16f), dp(16f),  // bottom-right
+                    dp(16f), dp(16f)   // bottom-left
                 )
             }
             background = bg
-            setPadding(dp(16f).toInt(), dp(12f).toInt(), dp(16f).toInt(), dp(14f).toInt())
+            // Extra top padding to avoid the status bar/notch
+            setPadding(dp(16f).toInt(), dp(40f).toInt(), dp(16f).toInt(), dp(14f).toInt())
             elevation = dp(8f)
         }
 
@@ -254,26 +255,33 @@ class AgentOverlayManager(private val service: AccessibilityService) {
             )
         }
 
+        val isTeachMode = AgentStateRepository.globalState.currentGoal?.intent == "TEACH"
+
         val stopButton = TextView(ctx).apply {
-            text = "■ STOP"
-            setTextColor(Color.parseColor("#EF5350"))
+            text = if (isTeachMode) "✔ DONE" else "■ STOP"
+            setTextColor(if (isTeachMode) Color.parseColor("#4CAF50") else Color.parseColor("#EF5350"))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
             typeface = Typeface.DEFAULT_BOLD
             val btnBg = GradientDrawable().apply {
-                setColor(Color.parseColor("#33EF5350"))
+                setColor(if (isTeachMode) Color.parseColor("#334CAF50") else Color.parseColor("#33EF5350"))
                 cornerRadius = dp(8f)
             }
             background = btnBg
             setPadding(dp(16f).toInt(), dp(6f).toInt(), dp(16f).toInt(), dp(6f).toInt())
             setOnClickListener {
-                // Stop the agent by resetting state
                 val state = AgentStateRepository.globalState
-                state.status = AgentStatus.ERROR
-                state.statusMessage = "Stopped by user"
-                state.isRunning = false
-                state.appendLog("USER", "Agent stopped by user via overlay")
-                // Terminate the app completely as requested
-                kotlin.system.exitProcess(0)
+                if (isTeachMode) {
+                    state.statusMessage = "Teaching done"
+                    state.appendLog("USER", "Teaching finished by user")
+                    state.status = AgentStatus.COMPLETED
+                    state.isRunning = false
+                } else {
+                    state.status = AgentStatus.ERROR
+                    state.statusMessage = "Stopped by user"
+                    state.isRunning = false
+                    state.appendLog("USER", "Agent stopped by user via overlay")
+                    kotlin.system.exitProcess(0)
+                }
             }
         }
         buttonRow.addView(stopButton)

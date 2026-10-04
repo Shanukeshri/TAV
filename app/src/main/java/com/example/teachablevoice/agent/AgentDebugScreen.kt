@@ -71,9 +71,7 @@ fun AgentDebugScreen() {
                         onClick = {
                             if (objective.isNotBlank()) {
                                 val intent = Intent(context, AgentForegroundService::class.java).apply {
-                                    putExtra(AgentForegroundService.EXTRA_OBJECTIVE, objective)
-                                    // Normally we route this through AgentRequestRouter, but this is a debug screen.
-                                    // For simplicity, we just pass objective.
+                                    putExtra(AgentForegroundService.EXTRA_VOICE_COMMAND, objective)
                                 }
                                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                                     context.startForegroundService(intent)

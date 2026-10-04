@@ -61,7 +61,7 @@ class AgentForegroundService : Service() {
                 ModelManager.backend.load()
                 val router = AgentRequestRouter(this@AgentForegroundService, ModelManager.backend)
                 val request = router.route(command) ?: return@launch
-                val goal = Goal(request.intent, request.targetApp, request.task)
+                val goal = Goal(request.intent, request.targetApp, request.task, request.parameters)
                 val bridge = AutomationBridgeImpl(this@AgentForegroundService)
                 val memoryManager = WorkflowMemoryManager(this@AgentForegroundService, ModelManager.backend as GeminiApiClient)
                 val controller = AgentController(ModelManager.backend, bridge, memoryManager)
@@ -89,7 +89,7 @@ class AgentForegroundService : Service() {
                         val bridge = AutomationBridgeImpl(this@AgentForegroundService)
                         val memoryManager = WorkflowMemoryManager(this@AgentForegroundService, ModelManager.backend as GeminiApiClient)
                         val controller = AgentController(ModelManager.backend, bridge, memoryManager)
-                        val goal = Goal(request.intent, request.targetApp, request.task)
+                        val goal = Goal(request.intent, request.targetApp, request.task, request.parameters)
                         controller.execute(goal)
                     }
                 } catch (e: Exception) {
